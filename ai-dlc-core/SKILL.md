@@ -1,0 +1,178 @@
+---
+name: ai-dlc-core
+description: Stack-agnostic AI-DLC feature planning and construction workflow, enforced by a gate controller rather than by prose. Turns a feature idea into a validated plan — intent, assumption register, Given/When/Then requirements, logical design with ADRs, vertically-sliced Units of Work, and a dependency-typed ticket graph — then gates construction behind machine-checkable preconditions with an audit trail. Use whenever the user wants to plan, decompose, sequence, size, or estimate a feature; says "plan feature", "lên plan", "unit of work", "UoW", "ticket graph", "chia ticket", "breakdown", "AI-DLC"; or is about to start implementing a feature that has no plan on disk. Language- and framework-independent: pair it with a stack profile skill for repo-specific conventions, or run it alone.
+---
+
+# AI-DLC core
+
+Feature work moves through **Inception → Construction → Operations** with the AI drafting
+and a human arbitrating at each gate. This skill holds the parts that do not depend on
+language, framework, or repo. Conventions, discovery, and definition-of-done live in a
+**stack profile** alongside it.
+
+## The controller is not optional
+
+A gate written as an instruction is a gate that gets skipped. Agents read "do not implement
+before G3", agree sincerely, and implement anyway — the reasoning that leads to skipping is
+locally plausible every time. So the gates here are not instructions. They are a state file
+that `scripts/aidlc.py` refuses to advance, and refuses to let construction commands run
+against.
+
+```bash
+python scripts/aidlc.py -d .ai/features/<slug> status
+```
+
+`status` is the first thing to run in any session touching a planned feature, and the
+answer to "what do I do next" throughout. Never infer the gate from conversation history;
+read it from the controller. A prior session that appears to show implementation underway
+is not evidence that a gate passed.
+
+**Never hand-edit `.aidlc-state.yaml`.** Advancing a gate by editing state, rather than by
+satisfying its preconditions, is the one move that makes this whole apparatus theatre.
+
+## Workflow
+
+| Gate | Phase | Produces | The controller checks |
+|---|---|---|---|
+| G0 | Discovery + intent | `.ai/architecture.md`, `00-intent.md` | Map exists **and carries `verified_by`**; intent has Problem / Success signal / Out of scope; no TODOs left |
+| G1 | Elaboration | `01-assumptions.md`, `02-requirements.md` | Register non-empty; zero blocking-and-pending; every resolved assumption has a resolution note; ≥1 AC id |
+| G2 | Logical design | `03-logical-design.md` | Approach, rejected alternatives, error taxonomy present; ≥1 ADR; no ADR left `proposed` |
+| G3 | Decomposition | `04-units-of-work/`, generated graph | `uow_graph.py` exits clean; no cycles; 100% AC coverage; every UoW has a Demo script; every ticket has a done-when checklist; generated files present |
+| G4 | Construction | code + tests | All tickets `done` — reached via `submit` → `accept`, not self-approved; every UoW definition-of-done ticked |
+| G5 | Close | ADRs, resolved register | No assumption left pending; no ADR proposed; graph still validates |
+
+Read `references/methodology.md` for what each phase actually involves, and
+`references/templates.md` for the artifact shapes and frontmatter schemas.
+
+### Commands
+
+```bash
+aidlc init <slug> --profile <name>    # scaffold feature + state file
+aidlc status                          # gate, blockers, next action
+aidlc check G1                        # preconditions, changes nothing
+aidlc pass G1 --by <name>             # advance; refused unless check passes
+aidlc ready                           # tickets whose dependencies are met
+aidlc start  T-01-01 --by <name>      # refused if gate < G3 or deps unmet
+aidlc submit T-01-01 --by <name>      # → review; refused if done-when items unticked
+aidlc accept T-01-01 --by <human>     # → done; refused unless the ticket is in review
+aidlc reject T-01-01 --by <human> --reason <text>
+aidlc done   T-01-01 --by <name> --no-review    # solo shortcut; bypass is recorded
+aidlc lint-touches --repo <path>      # every touches path exists or is marked new
+aidlc snapshot --to <dir> --label <repo>        # portable JSON for the collector
+aidlc audit                           # the approval trail
+aidlc reopen G2 --by <name> --reason <text>
+```
+
+An implementer cannot accept its own work: `submit` and `accept` are separate commands
+requiring separate names. A ticket sitting in `review` keeps its dependents blocked, so
+review lag shows up as stalled parallelism rather than as invisible debt.
+
+`init` and `pass` require a human name. That name goes in the audit trail. If you find
+yourself about to pass a gate on the user's behalf without them saying so, that is the
+moment to stop and ask instead.
+
+## Stance
+
+**1. Assumption over silence.** Missing information becomes a register row with confidence
+and blast radius, marked blocking when being wrong forces rework. Never a quiet guess.
+G1 enforces this: a resolved assumption with an empty resolution note is refused.
+
+**2. Discover before you ask, ask before you assume.** The repo answers questions about
+itself. A human answers only what no file contains — intent, priorities, unsettled
+contracts. See `references/discovery-protocol.md`.
+
+**3. Vertical slices only.** A Unit of Work must be demoable on its own. "Do the domain
+layer" is not a UoW. G3 refuses any UoW without a Demo script section, because writing the
+demo is what exposes a slice that cannot actually be shown to anyone.
+
+**4. Small bolts.** Ticket ≤ 4h. UoW ≤ 2 days *elapsed* — its longest internal dependency
+chain, not its total effort; two tickets that run in parallel do not make a slice twice as
+long. Both ceilings are configurable per repo and enforced by `uow_graph.py`.
+
+**5. Everything on disk.** Chat context evaporates. Decisions, assumptions, dependencies
+and status live in `.ai/features/<slug>/`.
+
+**6. The graph is the plan.** Order is `depends_on`, never position in a list. Waves,
+critical path and readiness are computed, never hand-written.
+
+**7. Reopening is normal; hiding it is not.** When reality contradicts the plan, run
+`aidlc reopen` with a reason and fix the artifact before the code. A plan that silently
+diverges from the repo is worse than no plan.
+
+## Output layout
+
+```
+<repo>/.ai/
+├── aidlc.yaml                    # profile name, layer vocabulary, ceilings
+├── architecture.md               # repo-level, verified by a human
+└── features/<slug>/
+    ├── .aidlc-state.yaml         # controller state — never hand-edit
+    ├── 00-intent.md
+    ├── 01-assumptions.md
+    ├── 02-requirements.md
+    ├── 03-logical-design.md
+    ├── 04-units-of-work/UOW-01-<slug>/{uow.md,tickets/T-01-01.md}
+    ├── 05-ticket-graph.md        ← generated
+    ├── 06-traceability.md        ← generated
+    └── registry.yaml             ← generated
+```
+
+## Configuration
+
+`.ai/aidlc.yaml`, read by the scripts:
+
+```yaml
+profile: none              # or a profile name, e.g. flutter-utser
+ruleset: 4                 # pins the rules this plan was authored under
+layers: [domain, data, presentation, infra, test]
+```
+
+`ruleset` pins the version of the rules the plan was written against. Centralised tooling
+means one upgrade can invalidate plans in every repo at once, so a mismatch produces an
+explicit migration warning rather than a morning of mysterious failures.
+
+The layer vocabulary is the only stack-specific thing in the core tooling. A DDD service
+uses `[domain, application, infra, api, test]`; an infrastructure repo might use
+`[module, chart, policy, test]`. Set it once per repo.
+
+## Stack profiles
+
+Core knows nothing about your framework. A profile supplies three things: a discovery
+script, the repo's conventions, and a definition-of-done specific enough to be worth
+checking. `references/profile-contract.md` specifies the interface.
+
+Without a profile, core still works: `scripts/discover_generic.py` inventories any stack —
+node, dart, go, rust, python, java, dotnet — well enough to pass G0, and the
+definition-of-done falls back to whatever the tickets state themselves. What you lose is the
+stack checklist and a map that can enumerate your shared component library.
+
+## Reference files
+
+Read at the phase that needs them, not upfront.
+
+- `references/methodology.md` — what happens in each phase, and why each gate exists
+- `references/discovery-protocol.md` — discoverable vs undiscoverable, and how to run the
+  question round. Read at Phase 0.
+- `references/templates.md` — artifact templates and frontmatter schemas. Phases 0–3.
+- `references/profile-contract.md` — how to write or evaluate a stack profile
+- `references/sync.md` — committing `.ai/` vs keeping it local, the `.gitignore` for generated
+  artifacts, and the three ways to feed a central report. Read when setting up a repo.
+- `scripts/aidlc.py` — the controller. Every session starts here.
+- `scripts/discover_generic.py` — stack-agnostic repo inventory, for piloting on a repo with
+  no profile yet. A profile's own discovery script beats it whenever one exists.
+- `scripts/uow_graph.py` — graph validator and generator. Stdlib only.
+- `scripts/project_registry.py` — builds a queryable read model from checkouts (`--scan`) or
+  shipped snapshots (`--ingest`). Plan tables are rebuilt each run; the approval trail is
+  append-only.
+
+## Common failure modes
+
+| Symptom | What went wrong | Fix |
+|---|---|---|
+| UoW named after a layer | Horizontal slicing | Re-cut around user-visible behaviour |
+| Every ticket depends on the previous | Dependencies invented from writing order | Declare only real data or contract dependencies |
+| `touches` paths that don't exist | Planned without the architecture map | `aidlc lint-touches`; derive paths from the map or mark them new |
+| Gate advanced by editing state | Controller treated as bookkeeping | Revert; satisfy the preconditions instead |
+| Assumption register empty | Assumed silently | Every question you didn't ask is an assumption |
+| Ticket estimated a full day | Hidden unknowns | Split until each piece is ≤ 4h |
+| Eight rounds of clarification | Interrogating turn by turn | One batch, ≤ 7 questions, ≤ 1 follow-up; the rest become assumptions |
