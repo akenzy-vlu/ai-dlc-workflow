@@ -1,0 +1,4 @@
+# The only dependency in the whole package, and only needed on the `capable` rung.
+#   pip install -r requirements.txt
+#   playwright install chromium
+playwright>=1.49

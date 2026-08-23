@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repository is
 
-This repo holds two **Claude Code skill packages**, not an application:
+This repo holds three **Claude Code skill packages**, not an application:
 
 ```
 ai-dlc-core/                  stack-agnostic feature-planning workflow
@@ -20,6 +20,18 @@ ai-dlc-core/                  stack-agnostic feature-planning workflow
     ├── uow_graph.py           graph validator/generator, write-conflict hazards, ruleset pin
     ├── project_registry.py    cross-repo read model: --scan / --ingest / --report
     └── discover_generic.py    read-only repo inventory, any stack
+
+ai-dlc-verify/               browser verification for G4 — the same demo script, screenshotted
+├── SKILL.md
+├── references/
+│   ├── verification-protocol.md  the three rungs; discoverable vs undiscoverable; pass rules
+│   ├── config-schema.md      every key of the `verify:` block, and .ai/credentials.env
+│   ├── login-recipes.md      none / form / clerk-hosted / storage-state, and their failures
+│   └── templates.md          07-verification.md, the uow.md block, 08-evidence.md, PR draft
+└── scripts/
+    ├── verify.py             ladder resolution, run orchestration, generated artifacts
+    ├── evidence_check.py     validates that a ticked checkbox is supported by run.json
+    └── runner/run.py         the only file with a dependency: Playwright, driven by verify.py
 
 examples/profile-flutter/    EXAMPLE stack profile — reference impl of the contract below,
 ├── SKILL.md                       for one specific (fictional/sample) Flutter monorepo,
@@ -46,9 +58,21 @@ conventions, a concrete definition-of-done, and its own discovery script. Core k
 about Flutter or any other framework; the layer vocabulary is the only stack-specific value it
 reads, and it comes from `.ai/aidlc.yaml` in the *target* repo (not from here).
 
-There is no build step, package manifest, or test suite anywhere in this repo. Everything is
-**stdlib-only Python 3**. `ai-dlc-core` is meant to be copied (or symlinked) into
-`~/.claude/skills/` — e.g. `cp -r ai-dlc-core ~/.claude/skills/` — and run against some
+`ai-dlc-verify` is a **companion package to core, not a profile**: it is stack-agnostic, it
+installs globally like core, and it is the only thing in the repo that opens a browser. It
+supplies the verification half of G4 — the same Demo script core already requires, driven in a
+browser and screenshotted — and everything project-specific about it lives in the `verify:`
+block of the *target* repo's `.ai/aidlc.yaml`, never here. It hooks into core through exactly
+one seam: `check_g4` in `aidlc.py` counts unticked `- [ ]` boxes across the whole of `uow.md`,
+so a "Verification evidence" section appended to a UoW becomes a real gate precondition. That
+seam is also the reason the section must only be written when `verify.py --doctor` reports
+`capable` — see "The verification ladder" below.
+
+There is no build step or test suite anywhere in this repo, and every script is
+**stdlib-only Python 3** except `ai-dlc-verify/scripts/runner/run.py`, which imports Playwright
+and is needed only when a project actually runs a verification. `ai-dlc-core` and
+`ai-dlc-verify` are meant to be copied (or symlinked) into `~/.claude/skills/` — e.g.
+`cp -r ai-dlc-core ai-dlc-verify ~/.claude/skills/` — and run against some
 *other* repository's `.ai/` directory (see `PILOT-RUNBOOK.md`, Part 1). A real profile,
 modeled on `examples/profile-utser-flutter`, gets copied alongside it the same way. When
 you're asked to modify the `ai-dlc-core` scripts, you're changing tooling that other repos'
@@ -84,6 +108,20 @@ python3 examples/profile-utser-flutter/scripts/discover_repo.py <repo-root> -o <
 # Build/query the cross-repo read model
 python3 ai-dlc-core/scripts/project_registry.py --db plans.db --scan <repo-root>:<label>
 python3 ai-dlc-core/scripts/project_registry.py --db plans.db --report
+
+# Browser verification (ai-dlc-verify). --doctor first, always: it reports the rung and
+# changes nothing. Only the `capable` rung may write checkboxes into uow.md.
+python3 ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --doctor
+python3 ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --write
+python3 ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --env local --viewport desktop
+python3 ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --manual-login --env staging
+python3 ai-dlc-verify/scripts/evidence_check.py <repo>/.ai/features/<slug>
+python3 ai-dlc-verify/scripts/verify.py --version    # → aidlc_verify X.Y.Z (ruleset N)
+
+# The browser runner, once per machine (only needed on the `capable` rung). Use a venv when
+# the system Python is externally managed, and point AIDLC_VERIFY_PYTHON at it.
+pip install -r ai-dlc-verify/scripts/runner/requirements.txt && playwright install chromium
+AIDLC_VERIFY_PYTHON=~/.venvs/aidlc-verify/bin/python python3 ai-dlc-verify/scripts/verify.py <dir> --doctor
 ```
 
 There is no automated test suite (verified: no `*test*` files in the repo). Validate changes
@@ -148,6 +186,56 @@ Concretely:
   guess a layer convention from filenames, they cannot tell a live convention from a legacy
   one. A profile's own `discover_repo.py` always beats the generic fallback when one exists —
   the fallback is for piloting on a repo with no profile yet.
+
+### The verification ladder (`ai-dlc-verify`)
+
+The controller pattern extends into verification, with one extra constraint: this package is
+installed globally and will meet projects that have no login, no staging environment, and no
+credentials on the current machine. A verification tool that fails loudly in those cases gets
+disabled, and a disabled gate is worse than an absent one. So `verify.py resolve()` returns
+exactly one of four states, and **only `capable` may cause a checkbox to be written**:
+
+| Rung | Trigger | Behaviour |
+|---|---|---|
+| `not applicable` | no `verify:` block in `.ai/aidlc.yaml` | nothing resolved, nothing printed beyond one line, exit 0 |
+| `skipped` | configured, but a required env's credentials are absent or blank | one line, no browser, no `evidence/`, exit 0 |
+| `capable` | configured and credentialed | full run; evidence gates G4 |
+| `config error` | a contradiction (`required: true` + `enabled: false`, unknown recipe, viewport with no width, a spec naming an undefined env) | exit 1 — **must not degrade into `skipped`**, which would silently drop a required environment |
+
+The reason this matters when editing the scripts: the enforcement mechanism is core's
+`check_g4` counting `- [ ]` boxes in `uow.md`. Writing that block on any rung but `capable`
+produces checkboxes the project can never satisfy, and the only way out of that is editing
+`.aidlc-state.yaml` — the one move that makes the whole apparatus theatre. `--doctor` exists to
+be run *before* the UoW template is written, at G3.
+
+Other invariants worth preserving:
+
+- **`verify.py` does all the parsing and deciding; `runner/run.py` only drives a browser.** The
+  runner receives a finished plan (resolved URLs, parsed steps, parsed assertions) and writes
+  `evidence/run.json`. It decides nothing about which environments are required. Keeping the
+  judgement in a stdlib-only process — the runner is invoked as a subprocess, never imported —
+  is what lets a machine with no Playwright validate evidence someone else produced. That is
+  also why `verify.py` must never `import playwright`.
+- **The plan reaches the runner over stdin, never a file**, because it carries credentials.
+  `--manual-login` is the exception — stdin has to stay free for the human's Enter — and that
+  mode deliberately reads no credentials at all, so its 0600 temp file holds nothing secret.
+- **Screenshots are captured on failure too.** A red step's screenshot is the defect report; a
+  green-only runner would discard the most useful artifact of a bad run.
+- **Warm-up is not a retry, and must never become one.** Each environment gets one request
+  before the session is established whose result no verdict is derived from, so a cold load
+  balancer is recorded as a duration rather than mislabelled as a flaky step. It retries only on
+  transport failure or `502/503/504` — never on page content — and `warmup.attempts` is capped
+  at `WARMUP_ATTEMPT_CEILING = 5`. That ceiling is the seam that keeps "the environment was not
+  up" separate from "the assertion failed"; raising it would let a retry budget start absorbing
+  real regressions, which is the failure mode this package exists to prevent.
+- **`evidence_check.py` imports `verify.py` as a sibling** (they must stay in the same
+  directory), and reaches for `ai-dlc-core/scripts/uow_graph.py` to read UoW frontmatter with
+  core's own parser — trying `$AIDLC_CORE`, then `../../ai-dlc-core/scripts`, then
+  `~/.claude/skills/ai-dlc-core/scripts`. Its fallback reads only `id` and `verifies`, a
+  deliberately narrower contract than the full schema.
+- **`08-evidence.md`, `evidence/` and `.ai/.auth/` are generated or secret.** They belong in the
+  target repo's `.gitignore` alongside core's three generated files. `.ai/credentials.env` is
+  *not* matched by a `.env*` pattern — check with `git check-ignore -v`.
 
 ### Versioning discipline: `RULESET`
 

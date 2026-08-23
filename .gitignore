@@ -5,6 +5,10 @@
 __pycache__/
 *.py[cod]
 
+# Playwright lives in a venv or site-packages, never in the repo
+.venv/
+venv/
+
 # Editors
 .vscode/
 .idea/

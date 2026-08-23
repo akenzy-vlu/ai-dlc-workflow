@@ -1,12 +1,21 @@
 # files
 
-This repo holds two **Claude Code skill packages** — not an application. There is no build
-step, package manifest, or test suite; everything is stdlib-only Python 3.
+This repo holds three **Claude Code skill packages** — not an application. There is no build
+step and no test suite; everything is stdlib-only Python 3, except the browser runner in
+`ai-dlc-verify/scripts/runner/run.py`, which needs Playwright and is the only file in the
+repo with a dependency outside the standard library.
 
 - **`ai-dlc-core/`** — a stack-agnostic feature-planning workflow. Implements AI-DLC
   (Inception → Construction → Operations): a feature moves through six gates (`G0`…`G5`),
   and `scripts/aidlc.py` refuses to advance a gate or unlock construction commands until
   machine-checkable preconditions are met. Gates are enforced by a program, not by prose.
+- **`ai-dlc-verify/`** — the verification half of G4, for projects with a browser UI. Drives a
+  real login and walks a feature's verification steps at each declared viewport, in each
+  environment, producing screenshots, an evidence report and a PR draft. Stack-agnostic:
+  everything project-specific lives in the `verify:` block of the target repo's
+  `.ai/aidlc.yaml`. It resolves at runtime to one of three rungs and only the third can block
+  a gate, so installing it globally is safe on projects that have no login, no staging
+  environment, or no credentials on this machine.
 - **`examples/profile-flutter/`** — an *example* stack profile (for a fictional/sample
   Flutter monorepo), showing the shape a real profile must take per
   `ai-dlc-core/references/profile-contract.md`. A profile supplies repo-specific
@@ -33,6 +42,18 @@ ai-dlc-core/                  stack-agnostic feature-planning workflow
     ├── project_registry.py    cross-repo read model: --scan / --ingest / --report
     └── discover_generic.py    read-only repo inventory, any stack
 
+ai-dlc-verify/                browser verification for G4 — screenshots as evidence
+├── SKILL.md
+├── references/
+│   ├── verification-protocol.md  the three rungs; discoverable vs undiscoverable; pass rules
+│   ├── config-schema.md      every key of the `verify:` block, and the credentials file
+│   ├── login-recipes.md      none / form / clerk-hosted / storage-state
+│   └── templates.md          07-verification.md, the uow.md block, 08-evidence.md, PR draft
+└── scripts/
+    ├── verify.py             the ladder, the run, the generated artifacts (stdlib)
+    ├── evidence_check.py     turns a ticked checkbox back into a checkable claim (stdlib)
+    └── runner/run.py         the only file with a dependency: Playwright, driven by verify.py
+
 examples/profile-flutter/     EXAMPLE stack profile — reference impl of the contract above,
 ├── SKILL.md                  for one specific (fictional/sample) Flutter monorepo,
 ├── references/               not a profile shipped for real use
@@ -50,6 +71,10 @@ CLAUDE.md                     guidance for Claude Code when working in this repo
 - Claude Code (this is a skill package meant to be loaded into `~/.claude/skills/`)
 - A separate *target* repo to plan features in — this repo is the tooling, not the project
   you'll run it against
+- Playwright **only** if you use `ai-dlc-verify` against a project that actually runs it
+  (`pip install -r ai-dlc-verify/scripts/runner/requirements.txt && playwright install chromium`).
+  Everything else — resolving the ladder, reading `run.json`, generating the report, validating
+  evidence somebody else produced — works without it.
 
 ## Install on a new machine
 
@@ -58,6 +83,7 @@ Core and a profile install to **different scopes**, deliberately:
 | Package         | Install to                                                      | Why                                                                                                                                                                                         |
 | --------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ai-dlc-core`   | `~/.claude/skills/` — **global**                                | You plan features across more than one repo; `project_registry.py` aggregates plans *across* repos, so the tooling needs to be available everywhere.                                        |
+| `ai-dlc-verify` | `~/.claude/skills/` — **global**                                | Same reason, and it is designed for it: on a project with no `verify:` block, no credentials, or no browser at all it resolves to a rung that does nothing and blocks nothing.              |
 | a stack profile | `<target-repo>/.claude/skills/` — **project**, committed to git | A profile is scoped to the one repo it describes. Installing it inside the repo means it only ever loads there, and reaches teammates via `git clone` instead of a manual `cp` per machine. |
 
 ```bash
@@ -65,15 +91,25 @@ Core and a profile install to **different scopes**, deliberately:
 git clone <this-repo-url> ~/dev/files
 AIDLC_SRC=~/dev/files
 
-# 2. install core globally — once per machine
-cp -r "$AIDLC_SRC/ai-dlc-core" ~/.claude/skills/
+# 2. install core and verify globally — once per machine
+cp -r "$AIDLC_SRC/ai-dlc-core" "$AIDLC_SRC/ai-dlc-verify" ~/.claude/skills/
 
-# 3. convenience aliases (same path on every machine)
+# 3. the browser runner, once per machine and only if you will use it.
+#    A venv keeps Playwright out of an externally-managed system Python.
+python3 -m venv ~/.venvs/aidlc-verify
+~/.venvs/aidlc-verify/bin/pip install -r ~/.claude/skills/ai-dlc-verify/scripts/runner/requirements.txt
+~/.venvs/aidlc-verify/bin/playwright install chromium
+export AIDLC_VERIFY_PYTHON=~/.venvs/aidlc-verify/bin/python   # put this in your shell profile
+
+# 4. convenience aliases (same path on every machine)
 alias aidlc='python3 ~/.claude/skills/ai-dlc-core/scripts/aidlc.py'
 alias uowg='python3 ~/.claude/skills/ai-dlc-core/scripts/uow_graph.py'
+alias aidlc-verify='python3 ~/.claude/skills/ai-dlc-verify/scripts/verify.py'
+alias aidlc-evidence='python3 ~/.claude/skills/ai-dlc-verify/scripts/evidence_check.py'
 
-# 4. verify
+# 5. verify
 uowg --version          # → uow_graph X.Y.Z (ruleset N)
+aidlc-verify --version  # → aidlc_verify X.Y.Z (ruleset N)   — the two rulesets must match
 ```
 
 If you're planning against a repo that matches an existing profile (e.g. a Flutter monorepo
