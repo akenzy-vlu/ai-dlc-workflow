@@ -1,0 +1,34 @@
+{
+  "name": "@aidlc-console/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-DLC Console — portfolio, inbox and gate control across every repository using AI-DLC",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.3.2",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/inter-tight": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@reduxjs/toolkit": "^2.12.0",
+    "antd": "6.6.1",
+    "dayjs": "^1.11.18",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-redux": "^9.3.0",
+    "react-router-dom": "^7.9.3",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7"
+  }
+}

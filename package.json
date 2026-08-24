@@ -1,0 +1,25 @@
+{
+  "name": "ai-dlc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-DLC: the gate-enforced planning skills (skills/) and the console that drives them (apps/)",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm --filter \"./apps/*\" build",
+    "typecheck": "pnpm --filter \"./apps/*\" typecheck",
+    "test": "pnpm --filter @aidlc-console/api test",
+    "skills:check": "python3 -m py_compile skills/ai-dlc-core/scripts/*.py skills/ai-dlc-verify/scripts/*.py",
+    "services": "docker compose up -d postgres redis minio",
+    "services:down": "docker compose stop postgres redis minio",
+    "dev:hybrid": "AIDLC_STORE=postgres DATABASE_URL=postgres://${POSTGRES_USER:-aidlc}:${POSTGRES_PASSWORD:-aidlc}@127.0.0.1:${POSTGRES_HOST_PORT:-55432}/${POSTGRES_DB:-aidlc} REDIS_URL=redis://127.0.0.1:${REDIS_HOST_PORT:-56379} MINIO_ENDPOINT=127.0.0.1 MINIO_PORT=${MINIO_HOST_PORT:-59000} MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-aidlc} MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-aidlc-secret} pnpm --parallel --filter \"./apps/*\" dev"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

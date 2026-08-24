@@ -1,7 +1,7 @@
 # macOS
 .DS_Store
 
-# Python
+# Python — the skills under skills/ are stdlib-only and have no build step
 __pycache__/
 *.py[cod]
 
@@ -9,7 +9,20 @@ __pycache__/
 .venv/
 venv/
 
+# Node — the console under apps/
+node_modules/
+dist/
+*.tsbuildinfo
+*.log
+
+# Local secrets and machine-specific config (apps/api/.env is per-machine)
+.env
+.env.local
+
 # Editors
 .vscode/
 .idea/
 *.swp
+
+# Docker compose local state (console home bind mount)
+.docker/

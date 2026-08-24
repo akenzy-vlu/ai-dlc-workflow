@@ -1,0 +1,146 @@
+/* Brand tokens first — assets/theme.css is the source of truth for every colour, radius,
+   spacing step and duration in the system. Everything below only wires them into the app
+   shell and into the few places Ant Design cannot reach through its token API. */
+@import '../../../assets/theme.css';
+
+@import '@fontsource-variable/inter-tight';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
+/* The brand file names the families as they are licensed — `Inter`, `Inter Tight`,
+   `JetBrains Mono`. @fontsource ships them as variable fonts that register under a
+   different family name, so the installed faces are put first and the plain names kept
+   behind them for a machine where the fonts are installed system-wide. Without this the
+   whole app silently falls back to system-ui and the type looks nothing like the kit. */
+:root {
+  --font-ui: 'Inter Tight Variable', 'Inter Tight', 'Inter Variable', 'Inter', system-ui,
+    -apple-system, sans-serif;
+  --font-body: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo,
+    monospace;
+}
+
+/* Gate depth.
+   Light: later gates deepen, so a passed gate recedes into the page.
+   Dark: the same intent inverts — deepening would put G5 below the surface it sits on
+   and the chip would render blank. */
+:root {
+  --gate-none: var(--gp-300);
+  --gate-g0: var(--gp-400);
+  --gate-g1: var(--gp-500);
+  --gate-g2: var(--gp-600);
+  --gate-g3: var(--gp-700);
+  --gate-g4: var(--gp-800);
+  --gate-g5: var(--gp-900);
+}
+
+[data-theme='dark'] {
+  --gate-none: var(--gp-600);
+  --gate-g0: var(--gp-500);
+  --gate-g1: var(--gp-400);
+  --gate-g2: var(--gp-300);
+  --gate-g3: var(--gp-200);
+  --gate-g4: var(--gp-100);
+  --gate-g5: var(--gp-50);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-base);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings carry the UI face and tighten as they grow, per the type rules. Weight stops
+   at 500 everywhere: with a warm neutral, 600+ reads heavy and dated. */
+h1, h2, h3, h4, h5, h6,
+.ant-typography h1, .ant-typography h2, .ant-typography h3,
+.ant-typography h4, .ant-typography h5 {
+  font-family: var(--font-ui);
+  font-weight: 500;
+}
+
+h1, h2, .ant-typography h1, .ant-typography h2 {
+  letter-spacing: -0.02em;
+}
+
+strong,
+b,
+.ant-typography strong {
+  font-weight: 500;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+}
+
+/* One focus indicator, everywhere, and never removed without a replacement. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Scrollbars follow the neutral so a board's horizontal scroll does not read as a
+   foreign element pasted onto the page. */
+* {
+  scrollbar-color: var(--gp-300) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gp-200);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gp-300);
+  background-clip: content-box;
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: var(--gp-700);
+  background-clip: content-box;
+}
+
+/* The sidebar is always the dark surface, in both themes — it is the frame, not content.
+   Ant's dark Menu already matches; this keeps the rail's own chrome in step. */
+.kiln-sider {
+  border-right: 1px solid var(--gp-800);
+}
+
+.kiln-kbd {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 4px;
+  border-radius: var(--r-xs);
+  background: rgba(237, 234, 227, 0.08);
+  border: 1px solid rgba(237, 234, 227, 0.1);
+  color: var(--gp-300);
+}
+
+/* A manifest entry whose bytes are not on this machine. Dimmed rather than coloured: the
+   row is still real evidence, it is just evidence you cannot open — and the `missing` tag
+   in the row already carries the alarm. */
+.kiln-row-muted > td {
+  opacity: 0.55;
+}

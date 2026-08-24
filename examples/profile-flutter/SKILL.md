@@ -1,9 +1,10 @@
 ---
-name: profile-utser-flutter
-description: Stack profile for the UTSer Flutter monorepo — the repo containing apps/utser and packages/utse_ui_kit / utse_domain / utse_core. Supplies the repo inventory script, the BLoC and layer conventions, the utse_ui_kit reuse list, and the definition-of-done used when planning or implementing UTSer features. Use together with ai-dlc-core whenever work targets this monorepo: planning a feature, decomposing tickets, reviewing a Flutter BLoC or page against house style, or checking a change against the UTSer definition-of-done. Not for other Flutter projects, and not for the VLGO NestJS services or the SIS/UTS One infrastructure repos.
+name: profile-flutter
+scope: project
+description: EXAMPLE stack profile for a sample Flutter monorepo — the repo containing apps/sample_app and packages/sample_ui_kit / sample_domain / sample_core. Supplies the repo inventory script, the BLoC and layer conventions, the sample_ui_kit reuse inventory, and the definition-of-done used when planning or implementing features there. Use together with ai-dlc-core whenever work targets a monorepo with those exact path markers: planning a feature, decomposing tickets, reviewing a Flutter BLoC or page against house style, or checking a change against the definition-of-done. This is a reference implementation of the profile contract, not a profile shipped for real use — copy it and replace the names with your own before pointing it at a real repo.
 ---
 
-# Profile — UTSer Flutter
+# Profile — Flutter monorepo (EXAMPLE)
 
 A stack profile. The workflow, the gates and the controller come from **`ai-dlc-core`** —
 read its SKILL.md first and run `aidlc status` before anything else. This file supplies only
@@ -11,8 +12,8 @@ what is specific to this monorepo.
 
 ## Applies to
 
-The monorepo containing `apps/utser/` and `packages/utse_ui_kit/`, `packages/utse_domain/`,
-`packages/utse_core/`. If those paths are not present, this is the wrong profile.
+The monorepo containing `apps/sample_app/` and `packages/sample_ui_kit/`, `packages/sample_domain/`,
+`packages/sample_core/`. If those paths are not present, this is the wrong profile.
 
 ## Discovery
 
@@ -22,13 +23,13 @@ python scripts/discover_repo.py <repo-root> --feature <closest-existing-feature>
 ```
 
 Detects: packages, state management, DI, networking, local database, routing, existing
-features and their layers, the `utse_ui_kit` widget inventory, `segmentOf()` route keys, and
+features and their layers, the `sample_ui_kit` widget inventory, `segmentOf()` route keys, and
 the naming conventions actually in use.
 
 The output has an empty `verified_by` field. G0 will not pass until a human fills it — read
 the draft and correct it first, because filename heuristics cannot tell a live convention
-from a legacy one. The one that catches people here: `utse_domain` exists, but several
-features keep their domain code inside `apps/utser` anyway. Check which applies before
+from a legacy one. The one that catches people here: `sample_domain` exists, but several
+features keep their domain code inside `apps/sample_app` anyway. Check which applies before
 writing `touches` paths.
 
 ## Configuration
@@ -36,21 +37,21 @@ writing `touches` paths.
 `.ai/aidlc.yaml`:
 
 ```yaml
-profile: flutter-utser
+profile: profile-flutter
 layers: [domain, data, presentation, infra, test]
 ```
 
 ## Conventions and definition of done
 
 `references/flutter-rules.md` — layer boundaries, BLoC shape, page composition, the
-`utse_ui_kit` reuse inventory, the banned-construct table, and the DoD checklist.
+`sample_ui_kit` reuse inventory, the banned-construct table, and the DoD checklist.
 
 Read it when writing tickets (Phase 3) and again when closing a UoW (G4) or the feature (G5).
 The DoD is the part that earns its keep: it is specific enough to fail.
 
 ## Notes for this repo
 
-- **Reuse before you build.** Check `packages/utse_ui_kit/lib/widgets/` first. A genuinely
+- **Reuse before you build.** Check `packages/sample_ui_kit/lib/widgets/` first. A genuinely
   new shared widget gets its own `type: chore` ticket and lands in the kit, never in a
   feature folder.
 - **Domain purity is load-bearing.** No `package:flutter/*` import in domain — that is what

@@ -1,0 +1,24 @@
+# Build context is the repo root. Keep it small — node_modules alone is 350 MB and the
+# images install their own from the lockfile anyway.
+**/node_modules
+**/dist
+**/.env
+**/*.tsbuildinfo
+**/__pycache__
+**/*.py[cod]
+
+.git
+.gitignore
+.claude
+.docker
+.venv
+venv
+
+**/.DS_Store
+*.log
+
+# Docs do not belong in a runtime image, but skills/ deliberately does — the API image
+# bakes in the controller it shells out to.
+docs
+README.md
+CLAUDE.md

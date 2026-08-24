@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="kiln">
+  <title>kiln app icon</title>
+  <rect width="512" height="512" rx="112" fill="#131211"/>
+  <g transform="translate(126,136) scale(5)">
+    <rect x="0" y="0" width="52" height="8" rx="4" fill="#FFB020"/>
+    <rect x="0" y="20" width="22" height="8" rx="4" fill="#7C776E"/>
+    <rect x="30" y="20" width="22" height="8" rx="4" fill="#7C776E"/>
+    <rect x="0" y="40" width="22" height="8" rx="4" fill="#4A4642"/>
+    <rect x="30" y="40" width="22" height="8" rx="4" fill="#4A4642"/>
+  </g>
+</svg>

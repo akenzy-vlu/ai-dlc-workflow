@@ -1,0 +1,107 @@
+/* kiln — Graphite & amber
+   Design tokens. Light là mặc định, dark bật qua [data-theme="dark"]. */
+
+:root {
+  /* Graphite — neutral ám ấm, không dùng xám lạnh */
+  --gp-25:  #F7F5F0;
+  --gp-50:  #EDEAE3;
+  --gp-100: #DEDBD4;
+  --gp-200: #C9C5BD;
+  --gp-300: #A5A099;
+  --gp-400: #7C776E;
+  --gp-500: #5C5852;
+  --gp-600: #4A4642;
+  --gp-700: #3A3733;
+  --gp-800: #2A2724;
+  --gp-900: #1C1A18;
+  --gp-950: #131211;
+
+  /* Amber — màu thương hiệu duy nhất */
+  --am-100: #FFF0D1;
+  --am-200: #FFDE9E;
+  --am-300: #FFD27A;
+  --am-400: #FFC24D;
+  --am-500: #FFB020;
+  --am-600: #E09512;
+  --am-700: #B0730B;
+  --am-800: #7A4E08;
+  --am-900: #3D2A02;
+
+  /* Semantic — chỉ dùng cho trạng thái, không dùng làm màu trang trí */
+  --danger:  #E5533D;
+  --warning: #D9822B;
+  --success: #8AA35A;
+
+  /* Vai trò — light mode */
+  --bg-base:        var(--gp-25);
+  --bg-surface:     #FFFFFF;
+  --bg-raised:      var(--gp-50);
+  --bg-accent-soft: var(--am-100);
+  --border:         var(--gp-200);
+  --border-strong:  var(--gp-300);
+  --text-primary:   var(--gp-900);
+  --text-secondary: var(--gp-500);
+  --text-muted:     var(--gp-400);
+  --text-accent:    var(--am-800);
+  --accent-fill:    var(--am-500);
+  --accent-hover:   var(--am-400);
+  --accent-press:   var(--am-600);
+  --on-accent:      var(--am-900);
+  --focus-ring:     var(--am-600);
+
+  /* Bán kính */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-full: 999px;
+
+  /* Khoảng cách — base 4px */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+
+  /* Chữ */
+  --font-ui:   'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+  --fs-xs: 12px; --fs-sm: 13px; --fs-base: 15px; --fs-lg: 18px;
+  --fs-xl: 22px; --fs-2xl: 28px; --fs-3xl: 38px;
+  --lh-tight: 1.25; --lh-base: 1.55;
+
+  /* Chuyển động */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 240ms;
+}
+
+[data-theme="dark"] {
+  --bg-base:        var(--gp-950);
+  --bg-surface:     var(--gp-900);
+  --bg-raised:      var(--gp-800);
+  --bg-accent-soft: #2A1F0B;
+  --border:         var(--gp-700);
+  --border-strong:  var(--gp-600);
+  --text-primary:   var(--gp-50);
+  --text-secondary: var(--gp-300);
+  --text-muted:     var(--gp-400);
+  --text-accent:    var(--am-500);
+  --accent-fill:    var(--am-500);
+  --accent-hover:   var(--am-400);
+  --accent-press:   var(--am-600);
+  --on-accent:      var(--am-900);
+  --focus-ring:     var(--am-500);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="52" viewBox="0 0 220 52" role="img" aria-label="kiln">
+  <title>kiln lockup for light backgrounds</title>
+  <g transform="translate(0,2)">
+    <rect x="0" y="0" width="52" height="8" rx="4" fill="#B0730B"/>
+    <rect x="0" y="20" width="22" height="8" rx="4" fill="#A5A099"/>
+    <rect x="30" y="20" width="22" height="8" rx="4" fill="#A5A099"/>
+    <rect x="0" y="40" width="22" height="8" rx="4" fill="#C9C5BD"/>
+    <rect x="30" y="40" width="22" height="8" rx="4" fill="#C9C5BD"/>
+  </g>
+  <text x="72" y="26" dominant-baseline="central" fill="#1C1A18"
+        font-family="'Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',sans-serif"
+        font-size="38" font-weight="500" letter-spacing="-1.2">kiln</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="kiln">
+  <title>kiln favicon</title>
+  <rect width="32" height="32" rx="7" fill="#131211"/>
+  <rect x="6" y="7" width="20" height="4" rx="2" fill="#FFB020"/>
+  <rect x="6" y="14" width="8" height="4" rx="2" fill="#8E887E"/>
+  <rect x="18" y="14" width="8" height="4" rx="2" fill="#8E887E"/>
+  <rect x="6" y="21" width="8" height="4" rx="2" fill="#57534E"/>
+  <rect x="18" y="21" width="8" height="4" rx="2" fill="#57534E"/>
+</svg>

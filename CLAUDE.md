@@ -4,10 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repository is
 
-This repo holds three **Claude Code skill packages**, not an application:
+This repo is one workspace holding two halves that ship separately:
+
+- **`skills/`** — three Claude Code skill packages (two shipped, one example). Stdlib-only
+  Python 3, no build, no test suite. These get copied into `~/.claude/skills/` and run against
+  *other* repositories.
+- **`apps/`** — the AI-DLC Console, a pnpm workspace (NestJS 11 + React 19). The only built and
+  tested code here. It is a **client** of the skills above: it never writes plan state itself,
+  it shells out to `aidlc.py` / `uow_graph.py` and shows the verdict verbatim.
+
+Treat them as separate change surfaces. A `RULESET` bump under `skills/` is a breaking change
+the console must be checked against; a console change never alters gate semantics.
 
 ```
-ai-dlc-core/                  stack-agnostic feature-planning workflow
+skills/ai-dlc-core/           stack-agnostic feature-planning workflow
 ├── SKILL.md
 ├── references/
 │   ├── methodology.md        what each phase does, why each gate exists
@@ -21,7 +31,61 @@ ai-dlc-core/                  stack-agnostic feature-planning workflow
     ├── project_registry.py    cross-repo read model: --scan / --ingest / --report
     └── discover_generic.py    read-only repo inventory, any stack
 
-ai-dlc-verify/               browser verification for G4 — the same demo script, screenshotted
+skills/ai-dlc-verify/        browser verification for G4 — the same demo script, screenshotted
+├── SKILL.md
+├── references/
+│   ├── verification-protocol.md  the three rungs; discoverable vs undiscoverable; pass rules
+│   ├── config-schema.md      every key of the `verify:` block, and .ai/credentials.env
+│   ├── login-recipes.md      none / form / clerk-hosted / storage-state, and their failures
+│   └── templates.md          07-verification.md, the uow.md block, 08-evidence.md, PR draft
+└── scripts/
+    ├── verify.py             ladder resolution, run orchestration, generated artifacts
+    ├── evidence_check.py     validates that a ticked checkbox is supported by run.json
+    └── runner/run.py         the only file with a dependency: Playwright, driven by verify.py
+
+apps/api/                    NestJS 11 — Clean Architecture + DDD, seven bounded contexts
+├── src/contexts/            portfolio, planning, construction, governance, verification,
+│                              agents, and an insight read model composing them
+├── src/config/aidlc.config.ts  where the controller scripts are found (AIDLC_CORE_PATH)
+└── test/                    vitest — domain tests, no I/O and no subprocesses
+
+apps/api/src/contexts/skills/  skill packaging: what this checkout ships and where it is
+                             installed. Reads SKILL.md `scope:`, digests packages, copies
+                             them to ~/.claude/skills (global) or <repo>/.claude/skills
+                             (project). The only context that writes outside .ai/ state.
+
+apps/web/                    React 19 + Ant Design 6, feature-sliced, Redux Toolkit
+├── Dockerfile               targets: `runtime` (nginx + built SPA) and `dev` (vite + HMR)
+└── nginx.conf               one origin for SPA + /api + /events; mirrors the vite proxy
+
+examples/profile-flutter/    EXAMPLE stack profile — reference impl of the contract below,
+├── SKILL.md                       for one specific (fictional/sample) Flutter monorepo,
+├── references/                    not a profile shipped for real use
+│   └── flutter-rules.md      layer boundaries, BLoC shape, reuse inventory, concrete DoD
+└── scripts/
+    └── discover_repo.py      profile-specific inventory (sample_ui_kit, segmentOf() routes, ...)
+
+docs/PILOT-RUNBOOK.md        end-to-end dry run of both skills against a real repo — read first
+docs/console.md              the console's design, its integrations, and getting started
+package.json                 pnpm workspace root: dev / build / typecheck / test / skills:check
+docker-compose.yml           api + web, with `prod` and `dev` profiles selecting the web
+.env.example                 compose config; AIDLC_WORKSPACE is the one required value
+```
+skills/ai-dlc-core/                  stack-agnostic feature-planning workflow
+├── SKILL.md
+├── references/
+│   ├── methodology.md        what each phase does, why each gate exists
+│   ├── templates.md          artifact/frontmatter shapes — source of truth for schema
+│   ├── discovery-protocol.md discoverable-vs-undiscoverable framing for Phase 0
+│   ├── sync.md                how a target repo's .ai/ reaches a central report
+│   └── profile-contract.md   the interface a stack profile must implement
+└── scripts/
+    ├── aidlc.py               controller: gate state, ticket review, snapshot
+    ├── uow_graph.py           graph validator/generator, write-conflict hazards, ruleset pin
+    ├── project_registry.py    cross-repo read model: --scan / --ingest / --report
+    └── discover_generic.py    read-only repo inventory, any stack
+
+skills/ai-dlc-verify/               browser verification for G4 — the same demo script, screenshotted
 ├── SKILL.md
 ├── references/
 │   ├── verification-protocol.md  the three rungs; discoverable vs undiscoverable; pass rules
@@ -38,7 +102,7 @@ examples/profile-flutter/    EXAMPLE stack profile — reference impl of the con
 ├── references/                    not a profile shipped for real use
 │   └── flutter-rules.md      layer boundaries, BLoC shape, reuse inventory, concrete DoD
 └── scripts/
-    └── discover_repo.py      UTSer-specific inventory (utse_ui_kit, segmentOf() routes, ...)
+    └── discover_repo.py      profile-specific inventory (sample_ui_kit, segmentOf() routes, ...)
 
 PILOT-RUNBOOK.md              end-to-end dry run of both packages against a real repo — read first
 README.md                     one-line pointer from flutter-rules.md to the profile contract
@@ -48,9 +112,9 @@ README.md                     one-line pointer from flutter-rules.md to the prof
 through six gates (`G0`…`G5`), and `scripts/aidlc.py` refuses to advance a gate or unlock
 construction commands until machine-checkable preconditions are met.
 
-`examples/profile-utser-flutter` is an **example stack profile** — it lives under `examples/`
+`examples/profile-flutter` is an **example stack profile** — it lives under `examples/`
 because it demonstrates the shape a profile must take (per
-`ai-dlc-core/references/profile-contract.md`), not because it's a profile actively deployed
+`skills/ai-dlc-core/references/profile-contract.md`), not because it's a profile actively deployed
 against a real repo in this codebase. Treat it as the reference implementation to copy when
 writing a *real* profile for an actual stack: a profile is a separate skill that depends on
 `ai-dlc-core` for the workflow itself and supplies only what's specific to one repo —
@@ -68,72 +132,175 @@ so a "Verification evidence" section appended to a UoW becomes a real gate preco
 seam is also the reason the section must only be written when `verify.py --doctor` reports
 `capable` — see "The verification ladder" below.
 
-There is no build step or test suite anywhere in this repo, and every script is
-**stdlib-only Python 3** except `ai-dlc-verify/scripts/runner/run.py`, which imports Playwright
-and is needed only when a project actually runs a verification. `ai-dlc-core` and
-`ai-dlc-verify` are meant to be copied (or symlinked) into `~/.claude/skills/` — e.g.
-`cp -r ai-dlc-core ai-dlc-verify ~/.claude/skills/` — and run against some
-*other* repository's `.ai/` directory (see `PILOT-RUNBOOK.md`, Part 1). A real profile,
-modeled on `examples/profile-utser-flutter`, gets copied alongside it the same way. When
+Nothing under `skills/` has a build step or a test suite, and every script there is
+**stdlib-only Python 3** except `skills/ai-dlc-verify/scripts/runner/run.py`, which imports Playwright
+and is needed only when a project actually runs a verification. (The build and the tests in
+this repo all belong to `apps/`.) Each package declares its
+install scope in its own `SKILL.md` frontmatter, and the two differ: `ai-dlc-core` is
+`scope: global` and is copied (or symlinked) into `~/.claude/skills/`, while `ai-dlc-verify`
+is `scope: project` and goes into each target repo's `.claude/skills/`, beside the `verify:`
+block and credentials it reads. A real profile, modeled on `examples/profile-flutter`, is
+`scope: project` too and installs the same way as verify.
+
+```bash
+cp -r skills/ai-dlc-core ~/.claude/skills/                              # global, once
+cp -r skills/ai-dlc-verify <repo>/.claude/skills/                       # per repo, committed
+```
+
+Either way they run against some *other* repository's `.ai/` directory (see
+`docs/PILOT-RUNBOOK.md`, Part 1). When
 you're asked to modify the `ai-dlc-core` scripts, you're changing tooling that other repos'
 planning sessions depend on — treat `RULESET` bumps and frontmatter-schema changes as breaking
 changes (see below).
 
 ## Commands
 
-No package manager, no build, no test runner. Everything is invoked directly. Paths below are
-relative to the repo root:
+The two halves have completely different toolchains. Paths below are relative to the repo root.
+
+### The skills (`skills/`)
+
+No package manager, no build, no test runner. Everything is invoked directly:
 
 ```bash
 # Syntax-check a script after editing it (there is no test suite)
-python3 -m py_compile ai-dlc-core/scripts/aidlc.py
+python3 -m py_compile skills/ai-dlc-core/scripts/aidlc.py
 
 # Run the gate controller against a feature directory (in some *other* repo)
-python3 ai-dlc-core/scripts/aidlc.py -d <repo>/.ai/features/<slug> status
-python3 ai-dlc-core/scripts/aidlc.py -d <repo>/.ai/features/<slug> check G1
-python3 ai-dlc-core/scripts/aidlc.py -d <repo>/.ai/features/<slug> pass G1 --by <name>
+python3 skills/ai-dlc-core/scripts/aidlc.py -d <repo>/.ai/features/<slug> status
+python3 skills/ai-dlc-core/scripts/aidlc.py -d <repo>/.ai/features/<slug> check G1
+python3 skills/ai-dlc-core/scripts/aidlc.py -d <repo>/.ai/features/<slug> pass G1 --by <name>
 
 # Validate/generate the ticket graph directly
-python3 ai-dlc-core/scripts/uow_graph.py <repo>/.ai/features/<slug> --write
-python3 ai-dlc-core/scripts/uow_graph.py <repo>/.ai/features/<slug> --parallel   # write-conflict hazards
-python3 ai-dlc-core/scripts/uow_graph.py --version                              # → uow_graph X.Y.Z (ruleset N)
+python3 skills/ai-dlc-core/scripts/uow_graph.py <repo>/.ai/features/<slug> --write
+python3 skills/ai-dlc-core/scripts/uow_graph.py <repo>/.ai/features/<slug> --parallel   # write-conflict hazards
+python3 skills/ai-dlc-core/scripts/uow_graph.py --version                              # → uow_graph X.Y.Z (ruleset N)
 
 # Inventory a repo with no stack profile yet
-python3 ai-dlc-core/scripts/discover_generic.py <repo-root> -o <repo>/.ai/architecture.md
+python3 skills/ai-dlc-core/scripts/discover_generic.py <repo-root> -o <repo>/.ai/architecture.md
 
-# Inventory the UTSer Flutter monorepo specifically (richer: utse_ui_kit, segmentOf() routes) —
+# Inventory the sample Flutter monorepo specifically (richer: sample_ui_kit, segmentOf() routes) —
 # example only; a real repo would use its own profile's discover_repo.py the same way
-python3 examples/profile-utser-flutter/scripts/discover_repo.py <repo-root> -o <repo>/.ai/architecture.md
+python3 examples/profile-flutter/scripts/discover_repo.py <repo-root> -o <repo>/.ai/architecture.md
 
 # Build/query the cross-repo read model
-python3 ai-dlc-core/scripts/project_registry.py --db plans.db --scan <repo-root>:<label>
-python3 ai-dlc-core/scripts/project_registry.py --db plans.db --report
+python3 skills/ai-dlc-core/scripts/project_registry.py --db plans.db --scan <repo-root>:<label>
+python3 skills/ai-dlc-core/scripts/project_registry.py --db plans.db --report
 
 # Browser verification (ai-dlc-verify). --doctor first, always: it reports the rung and
 # changes nothing. Only the `capable` rung may write checkboxes into uow.md.
-python3 ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --doctor
-python3 ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --write
-python3 ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --env local --viewport desktop
-python3 ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --manual-login --env staging
-python3 ai-dlc-verify/scripts/evidence_check.py <repo>/.ai/features/<slug>
-python3 ai-dlc-verify/scripts/verify.py --version    # → aidlc_verify X.Y.Z (ruleset N)
+python3 skills/ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --doctor
+python3 skills/ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --write
+python3 skills/ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --env local --viewport desktop
+python3 skills/ai-dlc-verify/scripts/verify.py <repo>/.ai/features/<slug> --manual-login --env staging
+python3 skills/ai-dlc-verify/scripts/evidence_check.py <repo>/.ai/features/<slug>
+python3 skills/ai-dlc-verify/scripts/verify.py --version    # → aidlc_verify X.Y.Z (ruleset N)
 
 # The browser runner, once per machine (only needed on the `capable` rung). Use a venv when
 # the system Python is externally managed, and point AIDLC_VERIFY_PYTHON at it.
-pip install -r ai-dlc-verify/scripts/runner/requirements.txt && playwright install chromium
-AIDLC_VERIFY_PYTHON=~/.venvs/aidlc-verify/bin/python python3 ai-dlc-verify/scripts/verify.py <dir> --doctor
+pip install -r skills/ai-dlc-verify/scripts/runner/requirements.txt && playwright install chromium
+AIDLC_VERIFY_PYTHON=~/.venvs/aidlc-verify/bin/python python3 skills/ai-dlc-verify/scripts/verify.py <dir> --doctor
 ```
 
-There is no automated test suite (verified: no `*test*` files in the repo). Validate changes
+The skills have no automated test suite. Validate changes
 to a script by running it end-to-end against a scratch `.ai/features/<slug>` directory (see
-`PILOT-RUNBOOK.md` for the exact walkthrough that was used to dry-run this system, including
+`docs/PILOT-RUNBOOK.md` for the exact walkthrough that was used to dry-run this system, including
 a real bug it caught) and by running `python3 -m py_compile` on anything you touch.
+
+### The console (`apps/`)
+
+A pnpm workspace rooted at the repo root. Run these from the root, not from inside `apps/`:
+
+```bash
+pnpm install                 # pnpm 10+, Node 22+
+pnpm dev                     # apps/api on :7777 and apps/web on :5173, in parallel
+pnpm build                   # both apps
+pnpm typecheck               # tsc --noEmit in both apps
+pnpm test                    # apps/api vitest — domain tests, no I/O, no subprocesses
+pnpm skills:check            # py_compile every script under skills/
+
+# one app at a time
+pnpm --filter @aidlc-console/api dev
+pnpm --filter @aidlc-console/web dev
+```
+
+Or in containers — same API image both ways, only the web service differs:
+
+```bash
+cp .env.example .env                 # AIDLC_WORKSPACE is required, the rest have defaults
+docker compose up -d --build         # nginx + built SPA on :8080
+docker compose --profile dev up      # vite dev server with HMR on :5173 instead
+docker compose build api             # after ANY change under skills/ — see below
+docker compose logs -f api
+```
+
+The Docker path inverts one default worth remembering: the API image **bakes `skills/` in**
+at `/opt/aidlc/skills`, so containers always drive this working tree's controller, while a
+native run defaults to the installed copies under `~/.claude/skills/`. A change to `skills/`
+is therefore invisible to a running container until `docker compose build api`.
+
+`AIDLC_WORKSPACE` is bind-mounted at the *same absolute path* inside the container as
+outside. That is deliberate and load-bearing: the repository registry stores absolute host
+paths, so identical paths are what let a repo tracked natively resolve inside the container.
+
+Two features do not survive containerisation, both by design rather than by bug: agent
+launching (the launcher resolves `claude` / `codex` / `cursor-agent` / `copilot` off `PATH`,
+and the image has none of them) and browser verification (no Playwright in the image, so
+`verify.py` resolves to a reporting rung). Both degrade honestly rather than erroring. Run
+natively when you need either.
+
+### State drivers
+
+`AIDLC_STORE` selects what backs the console's own state, and the choice is made once in
+`shared/shared.module.ts` rather than branched on inside each adapter:
+
+| Port | `file` | `postgres` |
+| ---- | ------ | ---------- |
+| `REPOSITORY_REGISTRY` | `JsonRepositoryRegistry` | `PgRepositoryRegistry` |
+| `CONSOLE_SETTINGS` | `FileConsoleSettings` | `PgConsoleSettings` |
+| `AGENT_DEFINITION_SOURCE` | `FileAgentDefinitionSource` | `PgAgentDefinitionSource` |
+| `AGENT_RUN_STORE` | `FileAgentRunStore` | `PgAgentRunStore` |
+| `EVIDENCE_STORE` | `CasEvidenceStore` | `MinioEvidenceStore` |
+| `PLAN_CACHE` | `PlanCache` (in-process) | `RedisPubSubPlanCache` (in-process + pub/sub) |
+
+Nothing about **plan** state moves. Every `Filesystem*Reader`, the three `Cli*` adapters and
+the plan watcher still work against `.ai/` on disk, because that is the source of truth and
+the controller is a subprocess. A database driver changes where the console remembers *which
+folders it watches*, never what a gate says.
+
+Two things to know when adding to this:
+
+- **The plan cache never serialises.** `FeatureSnapshot` holds live aggregates, so anything
+  that JSON round-trips returns prototype-less objects on a *hit* — the first request
+  succeeds and the second dies on `construction.graph.criticalPath is not a function`. The
+  Postgres driver therefore keeps snapshots in-process and uses Redis only to broadcast
+  invalidations, which is what cross-replica coherence actually needed.
+  `test/plan-cache.spec.ts` asserts a cached value comes back with its methods intact.
+
+- **Schema lives in `shared/infrastructure/db/migrations.ts`, as inline SQL.** `nest build`
+  compiles TypeScript and copies nothing else, so a `.sql` directory would exist in the repo
+  and be missing from `dist/` — failing at boot in the container and nowhere else. Never edit
+  a shipped step; append. `test/migrations.spec.ts` guards the mistakes that cost a boot
+  (backticks inside the template literal, reserved words as column names, a `CREATE` without
+  `IF NOT EXISTS`).
+- **Migrations run under an advisory lock**, which is what makes more than one API replica
+  safe to start at once.
+
+The API resolves the controller through `AIDLC_CORE_PATH`, which defaults to
+`~/.claude/skills/ai-dlc-core` — the *installed* copy, **not** `skills/ai-dlc-core` in this
+working tree. When a change spans both halves, point `apps/api/.env` at
+`<this-repo>/skills/ai-dlc-core` or the console will keep exercising the last-installed
+version and the change will appear to have no effect.
+
+Because `apps/api` shells out to those scripts, a `RULESET` bump or a frontmatter-schema change
+under `skills/` can break the console's parsers silently — `apps/api/src/contexts/planning/
+infrastructure/filesystem-feature-plan.reader.ts` deliberately mirrors `REQUIRED_INTENT_SECTIONS`
+and `assumption_rows` from `aidlc.py`. Run `pnpm test` after touching either side.
 
 ## Architecture
 
 ### The controller pattern, and why it's structured this way
 
-The core design decision (stated explicitly in `ai-dlc-core/SKILL.md`) is that **gates are
+The core design decision (stated explicitly in `skills/ai-dlc-core/SKILL.md`) is that **gates are
 enforced by a program, not by prose**. An instruction like "don't implement before G3" gets
 agreed to and then skipped by an agent under time pressure; a state file that a script refuses
 to advance without satisfying machine-checkable preconditions does not. Every script here is
@@ -142,9 +309,21 @@ the controller itself can't become a new thing to trust blindly.
 
 Concretely:
 
-- **`aidlc.py`** owns `.aidlc-state.yaml` inside a feature directory (`.ai/features/<slug>/`
-  in the target repo). It tracks the current gate (`G0`…`G5`) and an append-only `history` of
-  who passed/reopened what and when. `CHECKS = {"G0": check_g0, ...}` (near the bottom of the
+- **`aidlc.py`** owns the state of a feature directory (`.ai/features/<slug>/` in the target
+  repo). The **record** is `history.jsonl`: one JSON event per line, append-only, never
+  rewritten, declared `merge=union` by a `.gitattributes` the script writes itself — so two
+  checkouts that both approve something merge without a conflict and without losing either
+  entry. `.aidlc-state.yaml` is a **view** folded from that trail (`fold_gate`), still written
+  and still committed so existing readers keep working; when a merge damages it,
+  `aidlc reconcile` rebuilds it. Never set `current_gate` in a new code path — append an
+  event and let the fold decide, or the file and the record can drift.
+  Every mutating command takes an exclusive `flock` on `.aidlc-state.lock` **for the whole
+  read-check-write**, not just the write: the preconditions are what the approval claims to
+  be based on, so evaluating them outside the lock lets the trail record an approval for a
+  state that had already changed. `save_state` and the ticket rewrite go through
+  `write_atomic` (temp file, fsync, `os.replace`) — `open(path, "w")` truncates first, and a
+  crash in that window empties the only durable copy of the trail. It tracks the current gate
+  (`G0`…`G5`) and who passed/reopened what and when. `CHECKS = {"G0": check_g0, ...}` (near the bottom of the
   file) is the actual precondition logic per gate — read that dict and its functions, not
   `SKILL.md`'s table, when you need the exact rule. State transitions only move forward
   (`pass`) or explicitly backward with a recorded reason (`reopen`); there is no way to jump
@@ -154,7 +333,7 @@ Concretely:
   the audit trail rather than hidden.
 - **`uow_graph.py`** is the thing `aidlc.py` shells out to (via `run_uow_graph`, a
   subprocess call resolved relative to `aidlc.py`'s own directory — both scripts must stay
-  siblings inside `ai-dlc-core/scripts/`) for G3 and G5 checks, and is also runnable
+  siblings inside `skills/ai-dlc-core/scripts/`) for G3 and G5 checks, and is also runnable
   standalone. It has its own tiny YAML-subset frontmatter parser (`parse_frontmatter`) —
   deliberately not a real YAML parser, since the schema is fixed and controlled. It loads
   every `04-units-of-work/UOW-*/uow.md` and `tickets/T-*.md`, validates cross-references
@@ -164,7 +343,7 @@ Concretely:
   `05-ticket-graph.md`, `06-traceability.md`, `registry.yaml`. **Never hand-edit those
   three**; they're regenerated from the tickets specifically so they can't drift from them.
 - **`aidlc.py` reuses `uow_graph.py`'s parser by importing it** (`parse_frontmatter_files`,
-  `_critical_hours` insert `ai-dlc-core/scripts/` onto `sys.path` at runtime) rather than
+  `_critical_hours` insert `skills/ai-dlc-core/scripts/` onto `sys.path` at runtime) rather than
   reimplementing frontmatter parsing, so the two scripts can never disagree about what a
   ticket says. If you change `parse_frontmatter` or `load_plan` in `uow_graph.py`, you are
   changing what `aidlc.py` sees too.
@@ -174,12 +353,12 @@ Concretely:
   generated `registry.yaml` for its `--scan` path — it re-derives everything from the
   hand-written tickets via `uow_graph.load_plan` (imported the same way `aidlc.py` does), so a
   repo that `.gitignore`s its generated artifacts (the recommended setup, per
-  `ai-dlc-core/references/sync.md`) still reports correctly. Two tables, `gate_event` and
+  `skills/ai-dlc-core/references/sync.md`) still reports correctly. Two tables, `gate_event` and
   `snapshot_log`, are the sole exception to "disposable": they're `INSERT OR IGNORE`
   (append-only, deduplicated on natural key) because when a target repo doesn't commit `.ai/`
   to git, the JSON snapshot stream is the *only* durable copy of who approved what.
 - **`discover_generic.py`** (in `ai-dlc-core`) and **`discover_repo.py`** (Flutter-specific,
-  in the `examples/profile-utser-flutter` example) never write anything except their `-o`
+  in the `examples/profile-flutter` example) never write anything except their `-o`
   target. Their output is
   explicitly a **draft** — a human must fill `verified_by` in the frontmatter before
   `check_g0` in `aidlc.py` will pass. This is a deliberate trust boundary: heuristics can
@@ -229,7 +408,7 @@ Other invariants worth preserving:
   up" separate from "the assertion failed"; raising it would let a retry budget start absorbing
   real regressions, which is the failure mode this package exists to prevent.
 - **`evidence_check.py` imports `verify.py` as a sibling** (they must stay in the same
-  directory), and reaches for `ai-dlc-core/scripts/uow_graph.py` to read UoW frontmatter with
+  directory), and reaches for `skills/ai-dlc-core/scripts/uow_graph.py` to read UoW frontmatter with
   core's own parser — trying `$AIDLC_CORE`, then `../../ai-dlc-core/scripts`, then
   `~/.claude/skills/ai-dlc-core/scripts`. Its fallback reads only `id` and `verifies`, a
   deliberately narrower contract than the full schema.
@@ -254,7 +433,7 @@ fixed order), `uow.md`, and ticket files are parsed by regex/line-based logic in
 `aidlc.py` and `uow_graph.py`, not a real parser. A typo in a key name, a reordered
 assumption-table column, or a renamed section heading (e.g. `REQUIRED_INTENT_SECTIONS`,
 `REQUIRED_DESIGN_SECTIONS` in `aidlc.py`) breaks the graph or a gate check silently returning
-"missing" rather than erroring loudly. `ai-dlc-core/references/templates.md` is the canonical
+"missing" rather than erroring loudly. `skills/ai-dlc-core/references/templates.md` is the canonical
 shape reference — if you change what a script expects, update `templates.md` in the same
 change, and bump `RULESET` if the change affects validation of existing plans.
 
@@ -263,38 +442,41 @@ change, and bump `RULESET` if the change affects validation of existing plans.
 These are read by the *skill*, at the phase that needs them — not meant to be read cover to
 cover:
 
-- `ai-dlc-core/references/methodology.md` — what each phase (0–5) does and why each gate
+- `skills/ai-dlc-core/references/methodology.md` — what each phase (0–5) does and why each gate
   exists; read this to understand intended behavior before changing a `check_gN` function in
   `aidlc.py`.
-- `ai-dlc-core/references/discovery-protocol.md` — discoverable-vs-undiscoverable framing for
+- `skills/ai-dlc-core/references/discovery-protocol.md` — discoverable-vs-undiscoverable framing for
   Phase 0.
-- `ai-dlc-core/references/templates.md` — the artifact/frontmatter shapes; **the source of
+- `skills/ai-dlc-core/references/templates.md` — the artifact/frontmatter shapes; **the source of
   truth for schema**.
-- `ai-dlc-core/references/profile-contract.md` — the interface a stack profile (e.g.
-  `examples/profile-utser-flutter/`) must implement: `SKILL.md` + `references/<stack>-rules.md`
+- `skills/ai-dlc-core/references/profile-contract.md` — the interface a stack profile (e.g.
+  `examples/profile-flutter/`) must implement: `SKILL.md` + `references/<stack>-rules.md`
   + `scripts/discover_repo.py`.
-- `ai-dlc-core/references/sync.md` — how a target repo gets its `.ai/` plan state into a
+- `skills/ai-dlc-core/references/sync.md` — how a target repo gets its `.ai/` plan state into a
   central report (commit to git and let `project_registry.py --scan` pull, or emit portable
   JSON via `aidlc snapshot` and push); explains the `.gitignore` convention for the three
   generated files.
-- `examples/profile-utser-flutter/references/flutter-rules.md` — layer boundaries, BLoC shape,
-  the `utse_ui_kit` reuse inventory, banned-construct table, and the concrete
-  definition-of-done for the example UTSer monorepo — read this as the model for a real
+- `examples/profile-flutter/references/flutter-rules.md` — layer boundaries, BLoC shape,
+  the `sample_ui_kit` reuse inventory, banned-construct table, and the concrete
+  definition-of-done for the example Flutter monorepo — read this as the model for a real
   `<stack>-rules.md` when writing a new profile.
-- `PILOT-RUNBOOK.md` (repo root) — an end-to-end dry run of both packages together on a real
+- `docs/PILOT-RUNBOOK.md` — an end-to-end dry run of both packages together on a real
   repo, including a documented bug found during that run (the frontmatter parser was
   stripping `# new` comment markers off `touches` list items). Read this first — it's a
   working example of every command in sequence with expected output.
+- `docs/console.md` — the console's design: the one rule the whole thing hangs on (it never
+  writes plan state), why repositories are grouped into projects, the evidence CAS and the
+  agent-launcher integration, and how to run it locally. Read before touching `apps/`.
 
 ### Working across the skill/profile boundary
 
 `ai-dlc-core` is the methodology (gates, graph, controller); a stack profile is taste
-(conventions, DoD, its own discovery script) for one specific repo. `examples/profile-utser-flutter`
+(conventions, DoD, its own discovery script) for one specific repo. `examples/profile-flutter`
 is that shape worked out for a sample Flutter monorepo — read it as a worked example, not as
 something to register against a real project. Don't add framework-specific logic to
 `ai-dlc-core` — it belongs in a profile. Conversely, don't duplicate workflow/gate logic into a
 profile; the example's `SKILL.md` is deliberately thin and defers to `ai-dlc-core` for
 everything except conventions and discovery. A new, real stack profile follows the same
-shape — see `ai-dlc-core/references/profile-contract.md`, in particular the requirement that a
-profile's `SKILL.md` name concrete path markers (e.g. `apps/utser`, `packages/utse_*`) so it
+shape — see `skills/ai-dlc-core/references/profile-contract.md`, in particular the requirement that a
+profile's `SKILL.md` name concrete path markers (e.g. `apps/sample_app`, `packages/sample_*`) so it
 doesn't get picked for the wrong repo.

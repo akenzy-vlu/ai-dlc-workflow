@@ -1,7 +1,7 @@
-# UTSer Flutter conventions
+# Flutter monorepo conventions (EXAMPLE)
 
 Read this when writing tickets (Phase 3) and when closing out (Phase 5). These are the
-repo's actual rules — a ticket that violates them will fail review regardless of whether
+conventions of one sample monorepo — a ticket that violates them fails review regardless of whether
 the feature works.
 
 ## Layer boundaries
@@ -10,7 +10,7 @@ the feature works.
 | ------------ | ------------------------------ | ------------------------------------------------ |
 | Domain       | `dartz`, pure Dart             | Any `package:flutter/*`, any model, any API type |
 | Data         | Domain, http/dio, drift        | BLoC, widgets                                    |
-| Presentation | Domain, `utse_ui_kit`, flutter | Data sources directly — only UseCases            |
+| Presentation | Domain, `sample_ui_kit`, flutter | Data sources directly — only UseCases            |
 
 The domain-has-no-Flutter-import rule is the load-bearing one. It is what keeps use cases
 unit-testable without a widget tester, which is what makes tickets independently verifiable.
@@ -47,7 +47,7 @@ presentation is the whole reason the shared widget exists.
 
 ## Reuse before you build
 
-Check `packages/utse_ui_kit/lib/widgets/` before creating any widget. Current inventory:
+Check `packages/sample_ui_kit/lib/widgets/` before creating any widget. Current inventory:
 
 `AppSectionHeader` · `AppFilterChip` · `AppBadgeChip` · `AppFooterActions` ·
 `AppDetailRow` · `AppMetaField` · `AppAvatar` · `AppErrorState` · `AppEmptyState` ·
@@ -55,7 +55,7 @@ Check `packages/utse_ui_kit/lib/widgets/` before creating any widget. Current in
 `AppButton` · `AppActionButton` · `AppInput` · `AppScaffold`
 
 If a new shared widget is genuinely needed, it gets its own ticket with
-`layer: presentation`, `type: chore`, and lands in `utse_ui_kit` — not in the feature folder.
+`layer: presentation`, `type: chore`, and lands in `sample_ui_kit` — not in the feature folder.
 
 ## Banned in presentation code
 

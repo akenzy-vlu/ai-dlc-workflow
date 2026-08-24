@@ -1,0 +1,196 @@
+# AI-DLC Console in containers.
+#
+#   cp .env.example .env     # then set AIDLC_WORKSPACE
+#   docker compose up -d --build          # production shape: nginx + built SPA
+#   docker compose --profile dev up       # vite dev server with HMR instead
+#
+# The two web services are mutually exclusive profiles, so only one binds a port at a
+# time. `api` carries no profile and therefore runs in both modes.
+
+name: aidlc-console
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: aidlc-console-api:local
+    restart: unless-stopped
+
+    # The controller writes into your repositories as this user. On Linux, leaving it as
+    # root means aidlc.py creates root-owned .aidlc-state.yaml files in your working tree
+    # — set AIDLC_UID/AIDLC_GID in .env to your own ids. On macOS Docker Desktop maps
+    # ownership for you and the default is fine.
+    user: "${AIDLC_UID:-0}:${AIDLC_GID:-0}"
+
+    environment:
+      PORT: "7777"
+      AIDLC_PYTHON: python3
+      AIDLC_CORE_PATH: /opt/aidlc/skills/ai-dlc-core
+      AIDLC_VERIFY_PATH: /opt/aidlc/skills/ai-dlc-verify
+      AIDLC_CONSOLE_HOME: /var/lib/aidlc-console
+      AIDLC_SKILL_SOURCES: /opt/aidlc/skills,/opt/aidlc/examples
+      # Where the folder picker may browse. The container's own home is /root and holds
+      # nothing, so the mounted workspace is both the useful root and the honest bound:
+      # it is exactly the part of the host filesystem this API can actually see.
+      AIDLC_BROWSE_ROOTS: ${AIDLC_WORKSPACE}
+      # Postgres for the registry, settings, agent definitions and run transcripts;
+      # Redis for the plan cache; MinIO for evidence blobs. Plan data stays on disk in
+      # the repositories — the controller is a subprocess that reads and writes .ai/.
+      AIDLC_STORE: postgres
+      DATABASE_URL: postgres://${POSTGRES_USER:-aidlc}:${POSTGRES_PASSWORD:-aidlc}@postgres:5432/${POSTGRES_DB:-aidlc}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-aidlc}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-aidlc-secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-aidlc-evidence}
+      # Syncing a global skill must land on the HOST's ~/.claude/skills, not in a
+      # container layer that disappears with the container.
+      AIDLC_GLOBAL_SKILLS_HOME: /var/lib/claude-skills
+      PLAN_CACHE_TTL_SECONDS: "${PLAN_CACHE_TTL_SECONDS:-30}"
+      CONTROLLER_CONCURRENCY: "${CONTROLLER_CONCURRENCY:-4}"
+      # Both web services proxy same-origin, so this only matters when a browser hits the
+      # API directly on ${API_PORT}.
+      CORS_ORIGINS: "http://localhost:${WEB_PORT:-8080},http://localhost:${DEV_PORT:-5173}"
+
+    volumes:
+      # Mounted at the SAME absolute path inside the container as outside. The tracked-
+      # repository registry stores absolute host paths, so this is what lets a repo added
+      # from a native `pnpm dev` run resolve unchanged in the container, and vice versa.
+      # Mount it anywhere else and every tracked repo reads as missing.
+      - "${AIDLC_WORKSPACE:?set AIDLC_WORKSPACE in .env — the host directory holding the repositories the console should track}:${AIDLC_WORKSPACE}"
+      # No console-state mount: the registry, settings, run transcripts and evidence all
+      # live in postgres/redis/minio below. What remains mounted is the repositories
+      # themselves, which is not console state — it is the plan data the controller
+      # subprocess reads and writes, and cannot move into a database.
+      #
+      # One exception, read-only: agents.json is configuration a person hand-edits, so the
+      # container reads the same file a native run does. Without it the console silently
+      # forgets every agent you declared and offers only the four built-ins.
+      - "${AIDLC_AGENTS_FILE:-${HOME}/.aidlc-console/agents.json}:/var/lib/aidlc-console/agents.json:ro"
+      # Where a global skill is synced to — the same ~/.claude/skills a native install
+      # writes, so both agree on what "up to date" means and a sync from either is real.
+      - "${AIDLC_GLOBAL_SKILLS_HOME_HOST:-${HOME}/.claude/skills}:/var/lib/claude-skills"
+
+    ports:
+      # Loopback by default. Docker publishes to 0.0.0.0 unless told otherwise, and
+      # this API has no authentication: anyone on the same network could browse the
+      # filesystem and drive the controller. Set BIND_ADDR=0.0.0.0 only behind an
+      # authenticating proxy.
+      - "${BIND_ADDR:-127.0.0.1}:${API_PORT:-7777}:7777"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7777/api/maintenance/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # --------------------------------------------------------------- state
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aidlc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aidlc}
+      POSTGRES_DB: ${POSTGRES_DB:-aidlc}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Published on loopback so a natively-run API can use these same services — the mode
+    # that lets you launch agent CLIs (which are not in any image) while Postgres, Redis
+    # and MinIO stay in containers. BIND_ADDR keeps them off the network.
+    #
+    # High host ports on purpose: 5432 is already taken on this machine by another
+    # project's Postgres, and claiming the default would mean this stack and that one
+    # cannot both be up. The container still listens on 5432 internally.
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${POSTGRES_HOST_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aidlc} -d ${POSTGRES_DB:-aidlc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # The plan cache is a memo over files that are still on disk, so losing it costs one
+    # slow read and nothing else. No persistence, and eviction rather than an OOM.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${REDIS_HOST_PORT:-56379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aidlc}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aidlc-secret}
+    volumes:
+      - minio-data:/data
+    ports:
+      # 9000 is the S3 API, needed by a natively-run console; 9001 is the web console,
+      # useful for eyeballing what evidence is held.
+      - "${BIND_ADDR:-127.0.0.1}:${MINIO_HOST_PORT:-59000}:9000"
+      - "${BIND_ADDR:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # --------------------------------------------------------------- production web
+  web:
+    profiles: ["prod"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: runtime
+    image: aidlc-console-web:local
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # --------------------------------------------------------------- dev web
+  web-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: dev
+    environment:
+      # Read by vite.config.ts to pick the proxy target — server-side, inside this
+      # container, so it is the compose service name and not localhost.
+      VITE_API_URL: "http://api:7777"
+    volumes:
+      - ./apps/web:/repo/apps/web
+      # Anonymous volume: keeps the image's installed node_modules from being hidden by
+      # the bind mount above, which has none.
+      - /repo/apps/web/node_modules
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${DEV_PORT:-5173}:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  minio-data:
