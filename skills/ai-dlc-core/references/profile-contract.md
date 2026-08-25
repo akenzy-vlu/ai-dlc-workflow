@@ -83,8 +83,9 @@ profile: profile-flutter
 layers: [domain, data, presentation, infra, test]
 ```
 
-Then `aidlc init <slug> --profile profile-flutter`, which records the profile in the state
-file so later sessions know which rules applied.
+Then `aidlc init <name> --profile profile-flutter`, which scaffolds
+`.ai/features/YYYYMMDDNN-<name>/` and records the profile in the state file so later sessions
+know which rules applied.
 
 ## Where the methodology itself bends
 

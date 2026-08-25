@@ -20,8 +20,8 @@ and `scripts/aidlc.py` parse them, so a typo in a key name breaks the graph.
 
 ```markdown
 ---
-feature: course-registration
-slug: course-registration
+feature: course-registration          # the name, as a human says it
+slug: 2026072401-course-registration  # the directory name — the feature's identity
 owner: <name>
 created: 2026-07-24
 status: draft            # draft | approved | in_construction | done | abandoned
@@ -318,15 +318,20 @@ Do not hand-write these. `scripts/uow_graph.py --write` produces them.
 
 ## Id conventions
 
-| Kind                 | Format            | Example               |
-| -------------------- | ----------------- | --------------------- |
-| Feature slug         | kebab-case        | `course-registration` |
-| User story           | `US-<nn>`         | `US-01`               |
-| Acceptance criterion | `AC-<nn>`         | `AC-03`               |
-| Assumption           | `A-<nn>`          | `A-01`                |
-| ADR                  | `ADR-<nn>`        | `ADR-02`              |
-| Unit of Work         | `UOW-<nn>`        | `UOW-02`              |
-| Ticket               | `T-<uow nn>-<nn>` | `T-02-04`             |
+| Kind                 | Format              | Example                          |
+| -------------------- | ------------------- | -------------------------------- |
+| Feature name         | kebab-case          | `course-registration`            |
+| Feature directory    | `YYYYMMDDNN-<name>` | `2026072401-course-registration` |
+| Feature slug         | the directory name  | `2026072401-course-registration` |
+| User story           | `US-<nn>`           | `US-01`                          |
+| Acceptance criterion | `AC-<nn>`           | `AC-03`                          |
+| Assumption           | `A-<nn>`            | `A-01`                           |
+| ADR                  | `ADR-<nn>`          | `ADR-02`                         |
+| Unit of Work         | `UOW-<nn>`          | `UOW-02`                         |
+| Ticket               | `T-<uow nn>-<nn>`   | `T-02-04`                        |
+
+`NN` is that day's sequence, taken as the day's highest number plus one — never a count,
+so a deleted feature does not hand its number to the next one.
 
 Ids are stable and never reused. Deleting a ticket leaves a gap in the numbering —
 that is fine, and better than renumbering things other files point at.

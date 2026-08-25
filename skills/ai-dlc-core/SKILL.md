@@ -48,7 +48,7 @@ Read `references/methodology.md` for what each phase actually involves, and
 ### Commands
 
 ```bash
-aidlc init <slug> --profile <name>    # scaffold feature + state file
+aidlc init <name> --profile <profile> # scaffold .ai/features/YYYYMMDDNN-<name> + state
 aidlc status                          # gate, blockers, next action
 aidlc check G1                        # preconditions, changes nothing
 aidlc pass G1 --by <name>             # advance; refused unless check passes
@@ -67,6 +67,17 @@ aidlc reopen G2 --by <name> --reason <text>
 An implementer cannot accept its own work: `submit` and `accept` are separate commands
 requiring separate names. A ticket sitting in `review` keeps its dependents blocked, so
 review lag shows up as stalled parallelism rather than as invisible debt.
+
+`init` names the directory `YYYYMMDDNN-<name>` — the date planning started, then that
+day's sequence, then the feature name. A name is not unique over time; the same one comes
+back a quarter later as a different plan, and an undated folder would hand it the previous
+plan's trail, gate and tickets. The sequence is `max + 1` over that day's directories, not
+a count, so a deleted feature never hands its number to a second plan. Re-running `init`
+with the same name reopens the existing directory instead of minting a second one, so it
+stays safe to re-run; `--date YYYYMMDD` backfills a plan that started earlier, and
+`--date YYYYMMDDNN` pins its slot. The directory name is the feature's identity everywhere
+afterwards — the state file's `slug`, the registry key, the console's URLs — so it is read
+off disk, not off the argument.
 
 `init` and `pass` require a human name. That name goes in the audit trail. If you find
 yourself about to pass a gate on the user's behalf without them saying so, that is the
@@ -91,7 +102,7 @@ chain, not its total effort; two tickets that run in parallel do not make a slic
 long. Both ceilings are configurable per repo and enforced by `uow_graph.py`.
 
 **5. Everything on disk.** Chat context evaporates. Decisions, assumptions, dependencies
-and status live in `.ai/features/<slug>/`.
+and status live in `.ai/features/YYYYMMDDNN-<name>/`.
 
 **6. The graph is the plan.** Order is `depends_on`, never position in a list. Waves,
 critical path and readiness are computed, never hand-written.
@@ -106,7 +117,7 @@ diverges from the repo is worse than no plan.
 <repo>/.ai/
 ├── aidlc.yaml                    # profile name, layer vocabulary, ceilings
 ├── architecture.md               # repo-level, verified by a human
-└── features/<slug>/
+└── features/YYYYMMDDNN-<name>/ # e.g. 2026082501-course-registration — `<slug>` below
     ├── .aidlc-state.yaml         # controller state — never hand-edit
     ├── 00-intent.md
     ├── 01-assumptions.md

@@ -10,7 +10,7 @@ import { FeatureScaffoldWriterPort, IntentDraft } from '../domain/ports/feature-
 export class FilesystemFeatureScaffoldWriter implements FeatureScaffoldWriterPort {
   constructor(private readonly fs: FileSystem) {}
 
-  async writeIntent(featureDirectory: string, slug: string, draft: IntentDraft): Promise<boolean> {
+  async writeIntent(featureDirectory: string, feature: string, draft: IntentDraft): Promise<boolean> {
     const target = path.join(featureDirectory, '00-intent.md');
     const existing = await this.fs.readText(target);
     if (existing === null) return false;
@@ -21,7 +21,7 @@ export class FilesystemFeatureScaffoldWriter implements FeatureScaffoldWriterPor
 
     const outOfScope = draft.outOfScope.filter((item) => item.trim().length > 0);
     const body = [
-      `# Intent — ${slug}`,
+      `# Intent — ${feature}`,
       '',
       '## Problem',
       '',

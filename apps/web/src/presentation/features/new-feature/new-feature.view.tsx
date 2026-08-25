@@ -3,6 +3,12 @@ import { Alert, Form, Input, Modal, Select, Steps, Typography } from 'antd';
 import { MONO_FONT, token } from '@app/theme';
 import type { NewFeatureFormValues, NewFeatureViewProps } from './new-feature.props';
 
+/** The API stamps the directory; `NN` is the day's sequence, which only it can know. */
+function datestamp(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+}
+
 /**
  * Asks for the four things G0 will refuse without.
  *
@@ -77,7 +83,7 @@ export function NewFeatureView({
           <Form.Item
             name="slug"
             label="Slug"
-            extra="Becomes the directory name and the feature's identity everywhere afterwards. Lowercase, hyphens."
+            extra="Goes into the directory name, after today's date and the day's number, and is the feature's identity everywhere afterwards. Lowercase, hyphens."
             rules={[
               { required: true, message: 'A slug is required' },
               { pattern: /^[a-z0-9][a-z0-9-]*$/, message: 'Lowercase letters, digits and hyphens only' },
@@ -91,7 +97,7 @@ export function NewFeatureView({
               type="info"
               message={
                 <span style={{ fontFamily: MONO_FONT, fontSize: 11.5 }}>
-                  {selectedRepository.absolutePath}/.ai/features/{slug}
+                  {selectedRepository.absolutePath}/.ai/features/{datestamp()}<i>NN</i>-{slug}
                 </span>
               }
             />

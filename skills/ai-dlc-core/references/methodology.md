@@ -55,6 +55,21 @@ follow-up round at most.
 Unanswered questions are not a reason to stall. They become assumptions, marked blocking
 where being wrong would force rework.
 
+### 0c — Scaffold the feature
+
+```bash
+aidlc init <name> --profile <profile>      # → .ai/features/YYYYMMDDNN-<name>/
+```
+
+The directory carries the date planning started and that day's sequence, because a feature
+name is not unique over time. The same name comes back two quarters later as a different
+plan, and an undated folder would hand that plan the previous one's trail, gate and
+tickets. The sequence is the day's highest number plus one rather than a count, so deleting
+a feature never frees its number for a second plan to reuse. Re-running `init` with the
+same name reopens the existing directory rather than minting a second one; pass
+`--date YYYYMMDD` only when backfilling a plan that actually started earlier, or
+`--date YYYYMMDDNN` to pin a specific slot.
+
 Write `00-intent.md`. **Gate G0** — the architecture map exists and is signed, and the
 intent is agreed.
 

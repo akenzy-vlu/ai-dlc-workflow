@@ -29,6 +29,28 @@ export interface CreateFeatureResult {
   command: string;
 }
 
+const SEQUENCE_CEILING = 99;
+/** Matches `YYYYMMDDNN-<name>`, and the shorter `YYYYMMDD-` written before sequences existed. */
+const DATED_DIRECTORY = /^(\d{8})(\d{2})?-(.+)$/;
+
+function datestamp(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+}
+
+/**
+ * The day's next slot: its highest number plus one, not a count. A count would hand a
+ * deleted feature's number to the next plan, and the number is identity — two histories
+ * would end up pointing at one name.
+ */
+function nextSequence(entries: string[], date: string): number {
+  const used = entries
+    .map((entry) => DATED_DIRECTORY.exec(entry))
+    .filter((m): m is RegExpExecArray => m !== null && m[1] === date && m[2] !== undefined)
+    .map((m) => Number(m[2]));
+  return Math.max(0, ...used) + 1;
+}
+
 @Injectable()
 export class CreateFeatureUseCase implements UseCase<CreateFeatureInput, CreateFeatureResult> {
   constructor(
@@ -51,16 +73,31 @@ export class CreateFeatureUseCase implements UseCase<CreateFeatureInput, CreateF
       );
     }
 
-    const directory = path.join(repository.featuresDirectory, slug);
-    if (await this.fs.isDirectory(directory)) {
-      throw new ConflictException(`${slug} already exists in ${repository.label}`);
+    // Feature directories are `YYYYMMDDNN-<name>`, matching what `aidlc init` does on its
+    // own. The stamp is part of the identity: the same feature name comes back later as a
+    // different plan, and sharing a directory would hand it the earlier plan's trail and
+    // gate. A name already taken under any stamp is a conflict, not a second folder.
+    const entries = await this.fs.listDirectories(repository.featuresDirectory);
+    const taken = entries.find((entry) => (DATED_DIRECTORY.exec(entry)?.[3] ?? entry) === slug);
+    if (taken) {
+      throw new ConflictException(`${taken} already exists in ${repository.label}`);
     }
+
+    const date = datestamp();
+    const sequence = nextSequence(entries, date);
+    if (sequence > SEQUENCE_CEILING) {
+      throw new ConflictException(
+        `${date} already holds ${SEQUENCE_CEILING} features in ${repository.label}`,
+      );
+    }
+    const directoryName = `${date}${String(sequence).padStart(2, '0')}-${slug}`;
+    const directory = path.join(repository.featuresDirectory, directoryName);
 
     // The profile has to be one the repo actually declares, or every gate check afterwards
     // reports against conventions that are not this repository's.
     const profile = input.profile?.trim() || repository.settings.profile;
 
-    const outcome = await this.controller.init(directory, slug, profile === 'none' ? null : profile);
+    const outcome = await this.controller.init(directory, directoryName, profile === 'none' ? null : profile);
     if (!outcome.accepted) {
       throw new ConflictException(outcome.output || 'the controller refused to initialise this feature');
     }
@@ -72,8 +109,10 @@ export class CreateFeatureUseCase implements UseCase<CreateFeatureInput, CreateF
     this.assembler.invalidate(input.repositoryId);
 
     return {
+      // The directory name is the feature's identity everywhere afterwards — the state
+      // file's slug, the registry key, this console's URLs — so it is what we hand back.
       repositoryId: input.repositoryId,
-      slug,
+      slug: directoryName,
       directory,
       intentWritten,
       output: outcome.output,

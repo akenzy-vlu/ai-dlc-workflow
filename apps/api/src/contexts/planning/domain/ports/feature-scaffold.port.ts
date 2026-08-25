@@ -18,6 +18,11 @@ export interface IntentDraft {
  * fighting every other author of the file.
  */
 export interface FeatureScaffoldWriterPort {
-  /** Returns false, writing nothing, if the file has already been edited. */
-  writeIntent(featureDirectory: string, slug: string, draft: IntentDraft): Promise<boolean>;
+  /**
+   * `feature` is the bare name, not the dated directory — it titles the document, the
+   * same way `aidlc init` writes it.
+   *
+   * Returns false, writing nothing, if the file has already been edited.
+   */
+  writeIntent(featureDirectory: string, feature: string, draft: IntentDraft): Promise<boolean>;
 }

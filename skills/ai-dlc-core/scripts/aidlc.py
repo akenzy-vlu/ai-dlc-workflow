@@ -15,7 +15,7 @@ either entry. `.aidlc-state.yaml` is a *view* folded from that trail — if a me
 damages it, `aidlc reconcile` rebuilds it. Mutating commands take an exclusive lock on
 the feature directory for the whole read-check-write.
 
-    aidlc init <slug> [--profile NAME]     scaffold a feature and its state file
+    aidlc init <name> [--profile NAME]     scaffold .ai/features/YYYYMMDDNN-<name>
     aidlc status                           current gate, blockers, next action
     aidlc check <gate>                     run gate preconditions, report, change nothing
     aidlc pass <gate> --by <name>          advance, only if check passes
@@ -58,19 +58,24 @@ LOCK_FILE = ".aidlc-state.lock"
 GITATTRIBUTES = ".gitattributes"
 GITIGNORE = ".gitignore"
 LOCK_TIMEOUT = 30.0
+DATE_FORMAT = "%Y%m%d"
+SEQUENCE_CEILING = 99                   # two digits; the 100th feature in one day is a smell
+# Feature directories are YYYYMMDDNN-<name>. The optional pair is read but never
+# written: directories created before the sequence existed still parse as dated.
+DATED_DIR_RE = re.compile(r"^(\d{8}(?:\d{2})?)-(.+)$")
 
 REQUIRED_INTENT_SECTIONS = ["Problem", "Success signal", "Out of scope"]
 REQUIRED_DESIGN_SECTIONS = ["Approach", "Alternatives rejected", "Error taxonomy", "ADR"]
 
 SCAFFOLD = {
-    "00-intent.md": "# Intent — {slug}\n\n## Problem\n\nTODO\n\n## Success signal\n\nTODO\n\n"
+    "00-intent.md": "# Intent — {feature}\n\n## Problem\n\nTODO\n\n## Success signal\n\nTODO\n\n"
                     "## Out of scope\n\n- TODO\n\n## Constraints\n\nTODO\n",
     "01-assumptions.md": "# Assumption register\n\n"
                          "| ID | Assumption | Confidence | Blocking | Blast radius if wrong | Status | Resolution |\n"
                          "|----|-----------|-----------|----------|----------------------|--------|-----------|\n",
-    "02-requirements.md": "# Requirements — {slug}\n\n## US-01 — TODO\n\n**AC-01** — TODO\n"
+    "02-requirements.md": "# Requirements — {feature}\n\n## US-01 — TODO\n\n**AC-01** — TODO\n"
                           "```gherkin\nGiven TODO\nWhen TODO\nThen TODO\n```\n",
-    "03-logical-design.md": "# Logical design — {slug}\n\n## Approach\n\nTODO\n\n"
+    "03-logical-design.md": "# Logical design — {feature}\n\n## Approach\n\nTODO\n\n"
                             "## Alternatives rejected\n\n| Option | Why not |\n|---|---|\n\n"
                             "## Contracts\n\nTODO\n\n## Error taxonomy\n\nTODO\n\n"
                             "## ADRs\n\n### ADR-01 — TODO\n**Status:** proposed\n",
@@ -92,6 +97,114 @@ def read_text(path):
 
 def now():
     return datetime.datetime.now().replace(microsecond=0).isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# feature directory naming: YYYYMMDDNN-<name>
+# --------------------------------------------------------------------------- #
+
+
+def today_date():
+    return datetime.date.today().strftime(DATE_FORMAT)
+
+
+def split_dated(name):
+    """`2026082501-refund` -> `("2026082501", "refund")`; `refund` -> `(None, "refund")`."""
+    m = DATED_DIR_RE.match(name)
+    return (m.group(1), m.group(2)) if m else (None, name)
+
+
+def next_sequence(root, date):
+    """
+    The next two-digit slot for `date`, counting every feature opened that day.
+
+    It is a per-day counter rather than a global one, so the number stays short and
+    the directory still reads as a date. Taking max+1 rather than count+1 means a
+    deleted or renamed feature never hands its slot to a second plan — the numbers
+    are identity, and a reused one would point two histories at one name.
+    """
+    used = []
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        entries = []
+    for entry in entries:
+        stamp = split_dated(entry)[0]
+        if stamp and len(stamp) == 10 and stamp[:8] == date \
+                and os.path.isdir(os.path.join(root, entry)):
+            used.append(int(stamp[8:]))
+    seq = max(used, default=0) + 1
+    if seq > SEQUENCE_CEILING:
+        print(f"refused: {date} already holds {SEQUENCE_CEILING} features — "
+              "a day that opens a hundred plans is not a numbering problem",
+              file=sys.stderr)
+        sys.exit(1)
+    return seq
+
+
+def feature_dir_name(root, name, stamp=None):
+    """
+    A feature directory is named `YYYYMMDDNN-<name>`.
+
+    The date is when planning started and the pair after it is that day's sequence.
+    Both are identity rather than decoration: features get replanned, names get
+    reused, and two plans that share a name must not share a directory — the second
+    would inherit the first's trail and its gate. A name already carrying a full
+    ten-digit stamp keeps it, so `init` stays re-runnable; a bare date gets the
+    day's next slot.
+    """
+    existing, bare = split_dated(name)
+    stamp = stamp or existing or today_date()
+    if len(stamp) == 8:
+        stamp = f"{stamp}{next_sequence(root, stamp):02d}"
+    return f"{stamp}-{bare}"
+
+
+def clean_feature_name(raw):
+    """Refuse a name that would not survive being a directory, rather than mangling it."""
+    name = (raw or "").strip()
+    if not name or name.startswith(".") or "/" in name or os.sep in name:
+        print(f'refused: "{raw}" is not a usable feature name — it becomes a directory',
+              file=sys.stderr)
+        sys.exit(2)
+    return name
+
+
+def clean_stamp(raw):
+    """`YYYYMMDD` takes the day's next slot; `YYYYMMDDNN` pins one, for backfilling."""
+    if raw is None:
+        return None
+    text = raw.strip()
+    date, seq = text[:8], text[8:]
+    try:
+        datetime.datetime.strptime(date, DATE_FORMAT)
+        if seq and not (len(seq) == 2 and seq.isdigit() and int(seq) > 0):
+            raise ValueError(seq)
+    except ValueError:
+        print(f'refused: --date "{raw}" is not a YYYYMMDD date or a YYYYMMDDNN stamp',
+              file=sys.stderr)
+        sys.exit(2)
+    return text
+
+
+def existing_feature_dirs(root, name):
+    """
+    Directories already holding this feature, whatever date they carry.
+
+    Undated ones match too: a plan created before this convention keeps its folder
+    instead of being forked into a dated twin on the next `init`. Oldest first, with
+    undated ahead of everything dated, so the caller taking the last one gets the
+    most recently opened plan rather than whichever name happens to sort highest.
+    """
+    bare = split_dated(clean_feature_name(name))[1]
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return []
+    found = [e for e in entries
+             if split_dated(e)[1] == bare and os.path.isdir(os.path.join(root, e))]
+    found.sort(key=lambda e: (split_dated(e)[0] or "", e))
+    return [os.path.join(root, e) for e in found]
 
 
 def load_state(feature_dir):
@@ -628,13 +741,41 @@ def resolve_dir(args):
     return os.path.abspath(args.dir or ".")
 
 
-def command_dir(args):
-    """Where a command will write. `init` derives its own path from the slug."""
+def init_target_dir(args):
+    """
+    Where `init` writes: `.ai/features/YYYYMMDDNN-<name>`, unless `-d` names a path.
+
+    The lock is taken on this path before the command runs, so both callers have to
+    reach the same answer — and taking the lock *creates* the directory, which moves
+    the next free sequence. Resolving once and remembering it is what keeps the second
+    call from reading its own footprint and minting a second slot.
+    """
+    cached = getattr(args, "resolved_dir", None)
+    if cached:
+        return cached
+    args.resolved_dir = _resolve_init_dir(args)
+    return args.resolved_dir
+
+
+def _resolve_init_dir(args):
     if args.dir:
         return os.path.abspath(args.dir)
-    if getattr(args, "slug", None):
-        return os.path.abspath(os.path.join(".ai", "features", args.slug))
-    return os.path.abspath(".")
+    name = clean_feature_name(args.slug)
+    stamp = clean_stamp(getattr(args, "date", None))
+    root = os.path.join(".ai", "features")
+    if not stamp:
+        # Re-running `init` a week later must reopen the feature, not fork it.
+        existing = existing_feature_dirs(root, name)
+        if existing:
+            return os.path.abspath(existing[-1])
+    return os.path.abspath(os.path.join(root, feature_dir_name(root, name, stamp)))
+
+
+def command_dir(args):
+    """Where a command will write. `init` derives its own path from the name."""
+    if getattr(args, "slug", None) is not None:
+        return init_target_dir(args)
+    return os.path.abspath(args.dir or ".")
 
 
 def require_state(feature_dir):
@@ -647,7 +788,12 @@ def require_state(feature_dir):
 
 
 def cmd_init(args):
-    feature_dir = os.path.abspath(args.dir or os.path.join(".ai", "features", args.slug))
+    feature_dir = init_target_dir(args)
+    # The directory name is the identity everywhere afterwards — the state file, the
+    # registry key, the console's URLs — so read it off disk rather than off the
+    # argument, which may have arrived undated or through `-d`.
+    slug = os.path.basename(feature_dir)
+    stamp, feature = split_dated(slug)
     if load_state(feature_dir):
         print(f"already initialised: {feature_dir}")
         return 0
@@ -656,13 +802,16 @@ def cmd_init(args):
         path = os.path.join(feature_dir, name)
         if not os.path.isfile(path):
             with open(path, "w", encoding="utf-8") as fh:
-                fh.write(body.format(slug=args.slug))
+                fh.write(body.format(slug=slug, feature=feature))
     ensure_union_merge(feature_dir)
     save_state(feature_dir, {
-        "feature": args.slug, "slug": args.slug, "profile": args.profile or "none",
+        "feature": feature, "slug": slug, "profile": args.profile or "none",
         "created": now(), "current_gate": "none", "history": [],
     })
     print(f"initialised {feature_dir}")
+    if not stamp:
+        print(f"note: {slug} carries no YYYYMMDDNN- prefix — kept as given, "
+              "new features are dated")
     print(f"profile: {args.profile or 'none — set one with --profile'}")
     print("\nnext: complete 00-intent.md, verify the architecture map, then `aidlc check G0`")
     return 0
@@ -1093,7 +1242,12 @@ def main():
     ap.add_argument("-d", "--dir", help="feature directory (default: cwd)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("init"); p.add_argument("slug"); p.add_argument("--profile"); p.set_defaults(fn=cmd_init, mutates=True)
+    p = sub.add_parser("init", help="scaffold .ai/features/YYYYMMDDNN-<name>")
+    p.add_argument("slug", metavar="name", help="feature name; the date prefix is added for you")
+    p.add_argument("--profile")
+    p.add_argument("--date", metavar="YYYYMMDD[NN]",
+                   help="date prefix (default: today); add NN to pin the day's slot")
+    p.set_defaults(fn=cmd_init, mutates=True)
     p = sub.add_parser("status"); p.set_defaults(fn=cmd_status)
     p = sub.add_parser("check"); p.add_argument("gate"); p.set_defaults(fn=cmd_check)
     p = sub.add_parser("pass"); p.add_argument("gate"); p.add_argument("--by", required=True); p.set_defaults(fn=cmd_pass, mutates=True)

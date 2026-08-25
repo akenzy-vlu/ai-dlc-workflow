@@ -134,9 +134,14 @@ out of scope; any deadline or external dependency. Plus up to three that only di
 have raised.
 
 ```bash
-aidlc -d .ai/features/<slug> init <slug> --profile <your-profile-or-none>
-aidlc -d .ai/features/<slug> status
+aidlc init <name> --profile <your-profile-or-none>   # → .ai/features/YYYYMMDDNN-<name>/
+aidlc -d .ai/features/<slug> status                  # <slug> is that directory name
 ```
+
+`init` derives the directory itself, stamping it with the day planning started and that
+day's sequence, so let it — passing `-d` here takes the path literally and you lose the
+stamp. Every command after this
+one takes `-d <that directory>`.
 
 Expected — and this is the system working, not failing:
 
