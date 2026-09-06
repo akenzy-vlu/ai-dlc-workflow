@@ -252,6 +252,13 @@ def save_state(feature_dir, state):
         f"slug: {state.get('slug', '')}",
         f"profile: {state.get('profile', 'none')}",
         f"created: {state.get('created', now())}",
+    ]
+    # Written only when the plan actually carries one. Defaulting here would stamp every
+    # existing plan the first time any command touched it, quietly re-judging work that
+    # was authored and closed under the old rules — the exact thing the stamp prevents.
+    if state.get("ruleset"):
+        lines.append(f"ruleset: {state['ruleset']}")
+    lines += [
         f"current_gate: {state.get('current_gate', 'none')}",
         "history:",
     ]
@@ -334,7 +341,12 @@ def write_atomic(path, text):
 # the append-only trail
 # --------------------------------------------------------------------------- #
 
-HISTORY_KEYS = ("gate", "action", "at", "by", "evidence", "reason", "ticket")
+# Identity of one event. `ts` is in here because `at` only resolves to the second: two
+# runs of a fast command inside the same second would otherwise hash identically and
+# `read_history`'s dedupe would silently drop one. That also settles the older latent
+# case of two people approving the same gate in the same second — `fold_gate` wants both.
+HISTORY_KEYS = ("gate", "action", "at", "ts", "by", "evidence", "reason", "ticket",
+                "command", "exit", "digest", "duration_ms", "from")
 
 
 def entry_id(entry):
@@ -421,6 +433,33 @@ def read_history(feature_dir):
     return unique
 
 
+def normalise_actor(name):
+    """
+    One actor, however the name was typed.
+
+    `--by` is free text, so the same person arrives as "Akenzy", "akenzy" and " Akenzy ".
+    Identity is the casefolded name with its whitespace collapsed, because comparing raw
+    strings would let a stray space defeat the separation the reviewer check enforces —
+    and an actor who has to retype their own name differently to get past a refusal has
+    been told the rule is decorative.
+    """
+    return " ".join((name or "").split()).casefold()
+
+
+def last_ticket_event(history, ticket, action):
+    """
+    The most recent entry for one ticket and one action, or None.
+
+    `read_history` already returns the trail in the one deterministic order every checkout
+    agrees on, so the answer is the last match rather than a re-sort here. A second
+    ordering rule in this file is a second thing that can disagree with the record.
+    """
+    for entry in reversed(history):
+        if entry.get("ticket") == ticket and entry.get("action") == action:
+            return entry
+    return None
+
+
 def fold_gate(history):
     """
     Replay the trail into a current gate.
@@ -465,6 +504,68 @@ def record(feature_dir, state, entry):
     state["history"] = read_history(feature_dir)
     state["current_gate"] = fold_gate(state["history"])
     save_state(feature_dir, state)
+
+
+def record_evidence(feature_dir, state, ticket, actor, command, result):
+    """
+    Put one verification run on the trail.
+
+    Goes through `record` like everything else, so the view never drifts from the record —
+    including when the run failed and the transition that asked for it is about to be
+    refused. A run recorded only on success would throw away the most useful artifact of
+    a bad run, which is the same reason the companion package screenshots red steps.
+
+    `fold_gate` needs no branch for this: the entry carries gate G4 but an action that is
+    neither `passed` nor `reopened`, so it falls through and changes no gate.
+    """
+    entry = {
+        "gate": "G4", "action": "evidence", "ticket": ticket, "by": actor,
+        "command": command, "exit": result.get("exit"),
+        "digest": result.get("digest"), "duration_ms": result.get("duration_ms"),
+    }
+    if result.get("error"):
+        entry["reason"] = result["error"].replace(":", " -")
+    if result.get("tail"):
+        entry["tail"] = result["tail"]        # for a human; deliberately not part of the id
+    record(feature_dir, state, entry)
+    return entry
+
+
+def evidence_runs(feature_dir, ticket=None):
+    """Recorded runs, oldest first, optionally for one ticket."""
+    return [e for e in read_history(feature_dir)
+            if e.get("action") == "evidence" and (ticket is None or e.get("ticket") == ticket)]
+
+
+def passing_run(feature_dir, ticket):
+    """The most recent passing run for a ticket, or None. One definition, used by G4."""
+    for entry in reversed(evidence_runs(feature_dir, ticket)):
+        if entry.get("exit") == 0:
+            return entry
+    return None
+
+
+LEGACY_RULESET = 4     # what a plan with no stamp was authored under, by definition
+
+
+def tool_ruleset():
+    """The ruleset this tool implements, read from `uow_graph` — never a second literal."""
+    graph = sibling("uow_graph")
+    return getattr(graph, "RULESET", LEGACY_RULESET) if graph else LEGACY_RULESET
+
+
+def plan_ruleset(state):
+    """
+    The rules this plan is judged under.
+
+    An absent stamp means 4, and that default is the compatibility guarantee rather than a
+    fallback: every plan that exists anywhere today predates the stamp, so reading absence
+    as "the newest rules" would break all of them at once.
+    """
+    try:
+        return int(str(state.get("ruleset", "")).strip() or LEGACY_RULESET)
+    except ValueError:
+        return LEGACY_RULESET
 
 
 def gate_index(gate):
@@ -556,18 +657,61 @@ def run_uow_graph(feature_dir, extra=()):
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def parse_frontmatter_files(feature_dir):
-    """Reuse uow_graph's loader by import so the two never disagree."""
+def sibling(name):
+    """
+    Import a module that ships beside this one, or None.
+
+    The scripts are siblings by contract — `uow_graph.py` for the plan, `evidence.py` for
+    running a command — and importing them beats reimplementing them, because two copies
+    of a parser are two things that can disagree about what a ticket says.
+    """
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
     sys.dont_write_bytecode = True   # keep __pycache__ out of the repo
     try:
-        import uow_graph
+        return __import__(name)
     except ImportError:
+        return None
+
+
+def parse_frontmatter_files(feature_dir):
+    """Reuse uow_graph's loader by import so the two never disagree."""
+    uow_graph = sibling("uow_graph")
+    if uow_graph is None:
         return {}, {}
     uows, tickets, _, _ = uow_graph.load_plan(feature_dir)
     return uows, tickets
+
+
+def as_list(value):
+    return value if isinstance(value, list) else ([] if not value else [value])
+
+
+def resolve_verification(feature_dir, ticket):
+    """
+    What to run for this ticket, and why not, when there is nothing.
+
+    Returns `(command, config, note)`. `command` is None whenever nothing should run, and
+    `note` says which of the three reasons applies — not configured, a broken config, or a
+    ticket with nothing to verify. Callers must tell those apart: a typo in the config
+    that reads as "not configured" silently stops a repo verifying anything.
+    """
+    uow_graph = sibling("uow_graph")
+    if uow_graph is None or not hasattr(uow_graph, "load_evidence_config"):
+        return None, None, "unconfigured"
+    cfg = uow_graph.load_evidence_config(feature_dir)
+    if cfg is None:
+        return None, None, "unconfigured"
+    if cfg.get("error"):
+        return None, cfg, "config error"
+    command = cfg["command"]
+    if "{tests}" in command:
+        tests = as_list(ticket.get("tests"))
+        if not tests:
+            return None, cfg, "no tests"
+        command = command.replace("{tests}", " ".join(str(t) for t in tests))
+    return command, cfg, "ready"
 
 
 def checklist_state(path):
@@ -705,9 +849,62 @@ def check_g4(feature_dir):
         ticked, unticked = checklist_state(uow["_path"])
         if unticked:
             out.append(("fail", f"{uid} definition-of-done has {unticked} unticked item(s)"))
+    out.extend(check_g4_evidence(feature_dir, tickets))
     if not any(l == "fail" for l, _ in out):
         out.append(("ok", f"all {len(tickets)} tickets done, all UoW checklists ticked"))
     return not any(l == "fail" for l, _ in out), out
+
+
+def check_g4_evidence(feature_dir, tickets):
+    """
+    The ruleset-5 half of G4: a done ticket must point at a run that actually passed.
+
+    Two separate conditions have to hold before this can fail anything, and collapsing
+    them would punish a repo for upgrading:
+
+    * the **plan** was authored at ruleset 5 or later — an older plan is judged by the
+      rules it was written against, and only gets a hint;
+    * the **repo** opted in with an `evidence:` block — one that never configured
+      verification has nothing to produce and is not behind on anything.
+
+    A ticket whose command resolves to nothing (no `tests:`, and a command that wants
+    them) is reported rather than failed. There is nothing it could have run, and a gate
+    that fails on that teaches people to write a fake `tests:` entry.
+    """
+    ruleset = plan_ruleset(load_state(feature_dir) or {})
+    if ruleset < 5:
+        return [("ok", f"plan authored under ruleset {ruleset} — judged by those rules; "
+                       f"this tool implements {tool_ruleset()}. Plans created from now on "
+                       "carry a verification requirement at G4")]
+
+    graph = sibling("uow_graph")
+    cfg = graph.load_evidence_config(feature_dir) if graph and hasattr(
+        graph, "load_evidence_config") else None
+    if cfg is None:
+        return [("ok", "no `evidence:` block in .ai/aidlc.yaml — verification is not "
+                       "configured for this repo, so G4 asks for none")]
+    if cfg.get("error"):
+        return [("fail", cfg["error"])]
+
+    findings, missing, nothing_to_run = [], [], []
+    for tid, ticket in sorted(tickets.items()):
+        if ticket.get("status") != "done":
+            continue        # already reported as not done; do not say it twice
+        command, _, note = resolve_verification(feature_dir, ticket)
+        if note != "ready":
+            nothing_to_run.append(tid)
+        elif not passing_run(feature_dir, tid):
+            missing.append(tid)
+    if missing:
+        findings.append(("fail", "no passing verification run on record for: "
+                                 + ", ".join(missing)
+                                 + " — run `aidlc evidence <ticket>` to see what happened"))
+    if nothing_to_run:
+        findings.append(("ok", f"{len(nothing_to_run)} ticket(s) declare no `tests:`, so "
+                               f"nothing was run for them: {', '.join(nothing_to_run)}"))
+    if not missing and not nothing_to_run:
+        findings.append(("ok", "every done ticket has a passing verification run"))
+    return findings
 
 
 def check_g5(feature_dir):
@@ -806,7 +1003,7 @@ def cmd_init(args):
     ensure_union_merge(feature_dir)
     save_state(feature_dir, {
         "feature": feature, "slug": slug, "profile": args.profile or "none",
-        "created": now(), "current_gate": "none", "history": [],
+        "created": now(), "ruleset": tool_ruleset(), "current_gate": "none", "history": [],
     })
     print(f"initialised {feature_dir}")
     if not stamp:
@@ -837,6 +1034,19 @@ def cmd_status(args):
         done = sum(1 for t in tickets.values() if t.get("status") == "done")
         prog = sum(1 for t in tickets.values() if t.get("status") == "in_progress")
         print(f"tickets:  {done}/{len(tickets)} done, {prog} in progress")
+        fl, rows = flow_rows(feature_dir)
+        if fl:
+            hours = aging_threshold(feature_dir)
+            old_rows, stuck = fl.aging(rows, hours), fl.blocked(rows)
+            if old_rows or stuck:
+                parts = []
+                if old_rows:
+                    parts.append(f"{len(old_rows)} aging past {hours}h "
+                                 f"({', '.join(r['ticket'] for r in old_rows)})")
+                if stuck:
+                    parts.append(f"{len(stuck)} blocked "
+                                 f"({', '.join(r['ticket'] for r in stuck)})")
+                print("stalled:  " + "; ".join(parts) + " — `aidlc flow` for the detail")
     else:
         print("tickets:  construction locked until G3")
 
@@ -955,7 +1165,11 @@ ALLOWED_FROM = {
     "review": {"todo", "in_progress", "review"},
     "done": {"review", "done"},          # accept only from review
     "todo": {"review", "in_progress"},   # reject sends it back
+    "blocked": {"todo", "in_progress", "review"},
 }
+# `unblock` is deliberately absent: it restores whatever state the block interrupted,
+# read off the block event itself, so it needs no rule of its own and can never demote a
+# ticket that was already in review down to todo.
 
 
 def _transition(args, target):
@@ -993,6 +1207,21 @@ def _transition(args, target):
                   file=sys.stderr)
         return 1
 
+    # Separation of duties. `SKILL.md` claimed this rule for a long time before anything
+    # enforced it, and the data to enforce it was already being written: `submit` appends
+    # the submitting actor to the trail. Read it back rather than trusting the claim.
+    if target == "done" and not bypass:
+        submitted = last_ticket_event(read_history(feature_dir), tid, "ticket review")
+        # No submit event means nobody to conflict with — a ticket moved to review before
+        # this check existed, or by hand. Refusing there would strand every in-flight
+        # ticket in every repo on the day this ships.
+        if submitted and normalise_actor(submitted.get("by")) == normalise_actor(args.by):
+            print(f"refused: {tid} was submitted by {submitted.get('by')} — an implementer "
+                  f"does not accept its own work", file=sys.stderr)
+            print("       have a second actor run `accept`, or use `done --no-review` if "
+                  "you are working solo. The bypass is recorded.", file=sys.stderr)
+            return 1
+
     if target in {"review", "done"}:
         ticked, unticked = checklist_state(ticket["_path"])
         if unticked:
@@ -1000,6 +1229,39 @@ def _transition(args, target):
                   "tick them in the ticket file, or say why they no longer apply",
                   file=sys.stderr)
             return 1
+
+    # Verification. It runs on the way into `review` and on the way into `done`, but only
+    # while the ticket has no passing run yet — so `submit` runs it, a solo
+    # `done --no-review` runs it too, and an `accept` after a green submit does not pay for
+    # a second execution of the same suite.
+    if target in {"review", "done"} and not passing_run(feature_dir, tid):
+        command, cfg, note = resolve_verification(feature_dir, ticket)
+        if note == "config error":
+            print(f"refused: {cfg['error']}", file=sys.stderr)
+            return 1
+        if note == "unconfigured":
+            print("verification not configured for this repo — no `evidence:` block in "
+                  ".ai/aidlc.yaml, so nothing ran")
+        elif note == "no tests":
+            print(f"warning: {tid} declares no `tests:`, so its command resolves to nothing "
+                  "— there is no run to record", file=sys.stderr)
+        else:
+            ev = sibling("evidence")
+            if ev is None:
+                print("refused: evidence.py is missing from beside aidlc.py", file=sys.stderr)
+                return 1
+            print(f"verifying {tid}: {command}")
+            result = ev.run(command, cfg["timeout"], cfg["output_ceiling"])
+            # Record before deciding. A run that only reaches the trail when it passes
+            # throws away the most useful artifact of a bad run.
+            record_evidence(feature_dir, state, tid, args.by, command, result)
+            if not ev.passed(result):
+                detail = result.get("error") or f"exit {result.get('exit')}"
+                print(f"refused: verification failed for {tid} — {detail}", file=sys.stderr)
+                print(f"       the run is on the record: `aidlc evidence {tid}`",
+                      file=sys.stderr)
+                return 1
+            print(f"verified: exit 0 in {result['duration_ms'] / 1000:.1f}s")
 
     text = read_text(ticket["_path"])
     new_text, n = re.subn(r"^status:\s*\S+\s*$", f"status: {target}", text, count=1, flags=re.M)
@@ -1009,6 +1271,10 @@ def _transition(args, target):
     write_atomic(ticket["_path"], new_text)
 
     entry = {"gate": "G4", "action": f"ticket {target}", "by": args.by, "ticket": tid}
+    if target == "blocked":
+        # What to come back to. Restoring to a fixed state would silently demote a ticket
+        # that was already in review, and nobody would notice until its dependents moved.
+        entry["from"] = current
     if getattr(args, "reason", None):
         entry["reason"] = args.reason.replace(":", " -")
     if target == "done" and bypass:
@@ -1021,6 +1287,67 @@ def _transition(args, target):
     if target == "done":
         run_uow_graph(feature_dir, ["--write"])
         print("regenerated graph, traceability and registry")
+    return 0
+
+
+def open_block(feature_dir, tid):
+    """
+    The block this ticket is still sitting in, or None.
+
+    Pairs blocks with unblocks rather than trusting the status line, because a ticket
+    hand-edited to `blocked` has no block event — and that is exactly the case `unblock`
+    must refuse rather than guess its way out of.
+    """
+    pending = None
+    for entry in read_history(feature_dir):
+        if entry.get("ticket") != tid:
+            continue
+        if entry.get("action") == "ticket blocked":
+            pending = entry
+        elif entry.get("action") == "ticket unblocked":
+            pending = None
+    return pending
+
+
+def cmd_block(args):
+    return _transition(args, "blocked")
+
+
+def cmd_unblock(args):
+    feature_dir = resolve_dir(args)
+    state = require_state(feature_dir)
+    if not passed(state, "G3"):
+        print(f"refused: gate is {state.get('current_gate')}, construction requires G3",
+              file=sys.stderr)
+        return 1
+    _, tickets = parse_frontmatter_files(feature_dir)
+    tid = args.ticket
+    if tid not in tickets:
+        print(f"refused: no ticket {tid}", file=sys.stderr)
+        return 1
+
+    block = open_block(feature_dir, tid)
+    if not block:
+        print(f"refused: {tid} has no open block on the record — nothing to restore",
+              file=sys.stderr)
+        print("       a ticket edited to `status: blocked` by hand never went through "
+              "`aidlc block`, so the state it came from was never written down",
+              file=sys.stderr)
+        return 1
+
+    restored = block.get("from") or "todo"
+    ticket = tickets[tid]
+    text = read_text(ticket["_path"])
+    new_text, n = re.subn(r"^status:\s*\S+\s*$", f"status: {restored}", text,
+                          count=1, flags=re.M)
+    if not n:
+        print(f"refused: could not find a status line in {ticket['_path']}", file=sys.stderr)
+        return 1
+    write_atomic(ticket["_path"], new_text)
+    record(feature_dir, state, {"gate": "G4", "action": "ticket unblocked", "by": args.by,
+                                "ticket": tid, "from": restored,
+                                "reason": (block.get("reason") or "")[:120]})
+    print(f"{tid}: blocked → {restored}  (was blocked: {block.get('reason', '?')})")
     return 0
 
 
@@ -1042,6 +1369,102 @@ def cmd_reject(args):
 
 def cmd_done(args):
     return _transition(args, "done")
+
+
+AGING_DEFAULT_HOURS = 48
+
+
+def flow_rows(feature_dir):
+    """(flow module, rows) folded from the trail, or (None, []) if flow.py is missing."""
+    fl, graph = sibling("flow"), sibling("uow_graph")
+    if fl is None:
+        return None, []
+    _, tickets = parse_frontmatter_files(feature_dir)
+    estimates = {tid: graph.parse_estimate(t.get("estimate")) for tid, t in tickets.items()} \
+        if graph else {}
+    return fl, fl.feature_rows(read_history(feature_dir), estimates)
+
+
+def aging_threshold(feature_dir, override=None):
+    """The flag beats the repo's config, which beats the default."""
+    if override:
+        return override
+    graph = sibling("uow_graph")
+    cfg = graph.load_evidence_config(feature_dir) if graph and hasattr(
+        graph, "load_evidence_config") else None
+    if cfg and not cfg.get("error"):
+        return cfg.get("aging_hours", AGING_DEFAULT_HOURS)
+    return AGING_DEFAULT_HOURS
+
+
+def cmd_flow(args):
+    feature_dir = resolve_dir(args)
+    state = require_state(feature_dir)
+    if not passed(state, "G3"):
+        print(f"gate is {state.get('current_gate')} — there are no tickets to measure yet")
+        return 0
+    fl, rows = flow_rows(feature_dir)
+    if fl is None:
+        print("refused: flow.py is missing from beside aidlc.py", file=sys.stderr)
+        return 1
+    hours = aging_threshold(feature_dir, getattr(args, "aging_hours", None))
+
+    print(f"{'ticket':12} {'status':12} {'cycle':>8} {'review':>8} {'blocked':>8} "
+          f"{'est':>7} {'bias':>8}")
+    print("-" * 68)
+    for row in rows:
+        print(f"{row['ticket']:12} {row['status']:12} "
+              f"{fl.fmt_hours(row['cycle_hours']):>8} {fl.fmt_hours(row['review_hours']):>8} "
+              f"{fl.fmt_hours(row['blocked_hours']):>8} "
+              f"{fl.fmt_hours(row['estimate_hours']):>7} {fl.fmt_hours(row['bias_hours']):>8}")
+
+    total = fl.totals(rows)
+    print(f"\nmedian cycle {fl.fmt_hours(total['median_cycle_hours'])} · "
+          f"median review lag {fl.fmt_hours(total['median_review_hours'])} · "
+          f"blocked {fl.fmt_hours(total['blocked_hours'])}")
+    print(f"estimated {fl.fmt_hours(total['estimate_hours'])} · "
+          f"actual {fl.fmt_hours(total['actual_hours'])} · "
+          f"bias {fl.fmt_hours(total['bias_hours'])}")
+    print(f"measured {total['measured']}/{total['tickets']} tickets"
+          + (f", {total['unknown']} could not be measured" if total["unknown"] else ""))
+
+    old = fl.aging(rows, hours)
+    stuck = fl.blocked(rows)
+    if old:
+        print(f"\naging past {hours}h: "
+              + ", ".join(f"{r['ticket']} ({fl.fmt_hours(r['aging_hours'])})" for r in old))
+    if stuck:
+        print("blocked: " + ", ".join(r["ticket"] for r in stuck))
+    # Said once, where the numbers are: these are properties of tickets, not of people.
+    print("\nPer ticket and per feature. Not a measure of anyone who worked on them.")
+    return 0
+
+
+def cmd_evidence(args):
+    feature_dir = resolve_dir(args)
+    require_state(feature_dir)
+    runs = evidence_runs(feature_dir, args.ticket)
+    if not runs:
+        target = args.ticket or "this feature"
+        print(f"no recorded verification runs for {target}")
+        return 0
+    for entry in reversed(runs):                      # newest first
+        code = entry.get("exit")
+        verdict = "pass" if code == 0 else "FAIL"
+        ms = entry.get("duration_ms")
+        took = f"{ms / 1000:.1f}s" if isinstance(ms, int) else "?"
+        print(f"{entry.get('at')}  {entry.get('ticket')}  {verdict}  "
+              f"exit={code if code is not None else '-'}  {took}  by {entry.get('by')}")
+        print(f"    $ {entry.get('command')}")
+        if entry.get("reason"):
+            print(f"    ! {entry['reason']}")
+        # The tail is the defect report. Printing it for a passing run is noise; withholding
+        # it for a failing one means going and reading the trail by hand.
+        if code != 0 and entry.get("tail"):
+            for line in entry["tail"].rstrip().splitlines()[-20:]:
+                print(f"    | {line}")
+        print()
+    return 0
 
 
 def cmd_lint_touches(args):
@@ -1269,6 +1692,19 @@ def main():
     p.add_argument("--no-review", action="store_true",
                    help="required to skip review; the bypass is recorded in the audit trail")
     p.set_defaults(fn=cmd_done, mutates=True)
+    p = sub.add_parser("flow", help="cycle time, review lag, blocked time, estimate bias")
+    p.add_argument("--aging-hours", type=int,
+                   help="in-progress threshold; defaults to evidence.aging_hours, then 48")
+    p.set_defaults(fn=cmd_flow)
+    p = sub.add_parser("block", help="park a ticket that is waiting on something")
+    p.add_argument("ticket"); p.add_argument("--by", required=True)
+    p.add_argument("--reason", required=True); p.set_defaults(fn=cmd_block, mutates=True)
+    p = sub.add_parser("unblock", help="restore the state the block interrupted")
+    p.add_argument("ticket"); p.add_argument("--by", required=True)
+    p.set_defaults(fn=cmd_unblock, mutates=True)
+    p = sub.add_parser("evidence", help="recorded verification runs, newest first")
+    p.add_argument("ticket", nargs="?", help="one ticket; omit for the whole feature")
+    p.set_defaults(fn=cmd_evidence)
     p = sub.add_parser("lint-touches"); p.add_argument("--repo", required=True); p.set_defaults(fn=cmd_lint_touches)
     p = sub.add_parser("snapshot", help="emit a portable JSON snapshot for the collector")
     p.add_argument("--to", help="directory to write into; omit to print to stdout")

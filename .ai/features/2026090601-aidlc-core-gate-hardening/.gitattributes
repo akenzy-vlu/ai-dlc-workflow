@@ -1,0 +1,2 @@
+# history.jsonl only ever grows — merge both sides, never choose.
+history.jsonl merge=union

@@ -32,8 +32,11 @@ from collections import defaultdict, deque
 # presentation/data/domain; a NestJS DDD service uses application/domain/infra; an infra
 # repo might use module/chart/policy. Override it per repo in .ai/aidlc.yaml:
 #     layers: [domain, application, infra, api, test]
-__version__ = "0.4.0"
-RULESET = 4          # bump whenever a change can make a previously-valid plan fail
+__version__ = "0.5.0"
+# 5: G4 asks a done ticket for a recorded verification run that exited 0, when the repo
+#    configures an `evidence:` block. Applied per plan from the stamp `aidlc init` writes
+#    into `.aidlc-state.yaml`, so a plan authored under 4 keeps being judged under 4.
+RULESET = 5          # bump whenever a change can make a previously-valid plan fail
 
 DEFAULT_LAYERS = {"domain", "data", "presentation", "infra", "test"}
 VALID_TYPES = {"feature", "refactor", "spike", "test", "chore"}
@@ -259,6 +262,104 @@ def load_layers(feature_root):
             break
         path = parent
     return set(DEFAULT_LAYERS)
+
+
+# The `evidence:` block is the first key in this file's config dialect that needs one
+# level of nesting. One level is the whole contract — anything deeper is out of contract
+# and reported as an error rather than half-parsed. This is deliberately not YAML.
+EVIDENCE_DEFAULTS = {"timeout": 600, "output_ceiling": 8192, "aging_hours": 48}
+EVIDENCE_INTS = ("timeout", "output_ceiling", "aging_hours")
+# The header may carry its own trailing comment — `evidence:   # optional` is what a
+# human writes, and rejecting it would fail a file nobody would call wrong.
+_EVIDENCE_BLOCK = re.compile(r"^evidence:[ \t]*(?:#.*)?$((?:\n(?:[ \t]+\S.*|[ \t]*))*)", re.M)
+_EVIDENCE_ENTRY = re.compile(r"^[ \t]+([A-Za-z_][A-Za-z0-9_]*):[ \t]*(.*?)[ \t]*$")
+
+
+_QUOTED_THEN_COMMENT = re.compile(r"""^(['"])(.*)\1\s+#.*$""")
+
+
+def _scalar(raw):
+    """
+    One config value: unquoted if it was quoted, and shorn of any trailing comment.
+
+    Two traps, both found by round-tripping the documented example through this parser:
+
+    * `.strip("'\"")` eats quote characters from each end independently, turning
+      `"sh -c 'pytest'"` into `sh -c 'pytest` — an unbalanced command the shell rejects
+      for a reason that has nothing to do with the tests. Only a *matched* pair comes off.
+    * `timeout: 600   # seconds` is ordinary config, and reading the comment as part of
+      the number rejects a file a human would call obviously correct.
+
+    An inline comment needs whitespace before the `#`, the way YAML requires, so a `#`
+    inside a value survives. A command that genuinely contains ` #` must be quoted.
+    """
+    raw = raw.strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
+        return raw[1:-1]
+    match = _QUOTED_THEN_COMMENT.match(raw)
+    if match:
+        return match.group(2)
+    return re.split(r"\s+#", raw, maxsplit=1)[0].strip()
+
+
+def load_evidence_config(feature_root):
+    """
+    The repo's `evidence:` block, or None when it has none.
+
+    Three outcomes, and the difference between the last two is the point:
+
+    * `None` — no block. Verification is not configured, which is a supported state and
+      the one most repos are in. Everything downstream degrades to today's behaviour.
+    * a dict with `command` — configured, defaults filled in.
+    * a dict with `error` — a block that exists but cannot be used. A typo must never
+      read as "not configured", or a repo silently stops verifying and nobody is told.
+
+    Never raises: an unreadable or malformed config is a verdict, not a traceback.
+    """
+    cfg_path = find_config(feature_root)
+    if not cfg_path:
+        return None
+    match = _EVIDENCE_BLOCK.search(read_text(cfg_path))
+    if not match:
+        return None
+
+    cfg = dict(EVIDENCE_DEFAULTS)
+    cfg["_path"] = os.path.relpath(cfg_path)
+    base_indent = None
+    for line in match.group(1).splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        entry = _EVIDENCE_ENTRY.match(line)
+        if not entry:
+            return {"error": f"{cfg['_path']}: `evidence:` holds a line this parser does "
+                             f"not read — one level of `key: value`, nothing deeper: {line.strip()!r}"}
+        indent = len(line) - len(line.lstrip())
+        if base_indent is None:
+            base_indent = indent
+        # Deeper than the first entry means a nested block. Parsing it flat would quietly
+        # hoist `env.KEY` to `KEY` and configure something nobody asked for, so refuse.
+        if indent > base_indent:
+            return {"error": f"{cfg['_path']}: `evidence:` nests deeper than one level at "
+                             f"{line.strip()!r} — this is a fixed schema, not YAML"}
+        key, raw = entry.group(1), _scalar(entry.group(2))
+        if not raw:
+            return {"error": f"{cfg['_path']}: `evidence.{key}` has no value — a bare "
+                             "`key:` is either a nested block or a typo, and neither is usable"}
+        if key in EVIDENCE_INTS:
+            try:
+                cfg[key] = int(raw)
+            except ValueError:
+                return {"error": f"{cfg['_path']}: `evidence.{key}` must be a whole number, got {raw!r}"}
+            if cfg[key] <= 0:
+                return {"error": f"{cfg['_path']}: `evidence.{key}` must be positive, got {cfg[key]}"}
+        else:
+            cfg[key] = raw
+
+    if not cfg.get("command"):
+        return {"error": f"{cfg['_path']}: `evidence:` block has no `command` — either give "
+                         "it one or remove the block; a half-configured repo verifies nothing "
+                         "and says nothing"}
+    return cfg
 
 
 def read_text(path):

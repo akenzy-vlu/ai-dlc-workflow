@@ -277,6 +277,8 @@ status: todo                 # todo | in_progress | blocked | review | done
 depends_on: [T-01-01]        # ticket ids, may cross UoW
 blocks: [T-01-03]            # must mirror the other ticket's depends_on
 verifies: [AC-01, AC-03]     # AC ids from 02-requirements.md
+tests:                       # what proves this ticket; feeds {tests} in the repo's command
+  - test/registration/registration_remote_ds.spec.ts
 touches:                     # must exist in .ai/architecture.md, or be marked new
   - src/registration/data/models/registrable_course_model.ts
   - src/registration/data/registration_remote_ds.ts   # new; matches the orders feature
@@ -302,6 +304,52 @@ the mock in `test/fixtures/registration_courses.json` so the swap is isolated.
 
 Write the ticket so someone who was not in the planning conversation can pick it up
 cold. If the body only makes sense to you today, it is not finished.
+
+### `tests:` and the verification run
+
+`tests:` is what turns a done-when checkbox from a claim into a check. When the repo
+configures an `evidence:` block (below), `submit` — and a solo `done --no-review` —
+substitutes this list into the repo's command, runs it, and appends the result to
+`history.jsonl`. A non-zero exit refuses the transition; the run is recorded either way,
+because a failing run is the most useful thing in the trail.
+
+A ticket with no `tests:` is not an error. The command simply resolves to nothing, the
+controller says so, and the transition proceeds — a ticket with nothing to run is not a
+failing ticket. It also has no passing run, so at ruleset 5 the G4 check names it rather
+than passing it silently.
+
+## The `evidence:` block
+
+In the repo's `.ai/aidlc.yaml`, beside `layers:`. Entirely optional — a repo without it
+behaves exactly as it did before verification existed, which is a supported state and not
+an unfinished setup.
+
+```yaml
+evidence:
+  command: "pnpm vitest run {tests}"   # {tests} <- the ticket's tests: list, space-joined
+  timeout: 600                         # seconds; a timeout is a failed run, never a pass
+  output_ceiling: 8192                 # bytes of output tail kept on the record
+  aging_hours: 48                      # a ticket in progress longer than this is aging
+```
+
+The key is `evidence:`, not `verify:` — `verify:` belongs to the `ai-dlc-verify` package
+and the two are independent.
+
+Three states, and the third is why a typo cannot pass for a decision:
+
+| The block | What happens |
+| --------- | ------------ |
+| absent | nothing runs, one informational line, the transition proceeds |
+| present and valid | the command runs; a non-zero exit refuses the transition |
+| present and malformed | the transition is **refused** — a broken config never degrades into "not configured" |
+
+Only one nested level is parsed. This is a fixed schema read by regex, not YAML, and a
+deeper block is reported as an error rather than half-understood.
+
+**Output on the record.** The trail keeps a `sha256` of the whole output plus the last
+`output_ceiling` bytes of it. That tail goes into `history.jsonl`, which is usually
+committed — so a test that prints a token on failure prints it into your repository.
+Lower the ceiling, or stop printing secrets, before you turn this on.
 
 ---
 
@@ -348,6 +396,7 @@ that is fine, and better than renumbering things other files point at.
 | `03-logical-design.md` | G2, G5     | Approach, Alternatives rejected, Error taxonomy; ≥1 ADR; none `proposed`                            |
 | `uow.md`               | G3, G4     | `demoable: true`; a Demo script section; DoD fully ticked at G4                                     |
 | Ticket                 | G3, G4     | Valid layer/type/status; estimate ≤ ceiling; symmetric `depends_on`/`blocks`; a done-when checklist |
+| Ticket (ruleset ≥ 5)   | G4         | A recorded verification run with exit 0, when the repo configures `evidence:` and the ticket has something to run |
 | `.ai/aidlc.yaml`       | every run  | `layers` matches the repo; `ruleset` pinned to the tool's current ruleset                           |
 
 A section heading the checker cannot find is a failed gate, so keep the heading text as

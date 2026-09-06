@@ -39,7 +39,7 @@ satisfying its preconditions, is the one move that makes this whole apparatus th
 | G1 | Elaboration | `01-assumptions.md`, `02-requirements.md` | Register non-empty; zero blocking-and-pending; every resolved assumption has a resolution note; ≥1 AC id |
 | G2 | Logical design | `03-logical-design.md` | Approach, rejected alternatives, error taxonomy present; ≥1 ADR; no ADR left `proposed` |
 | G3 | Decomposition | `04-units-of-work/`, generated graph | `uow_graph.py` exits clean; no cycles; 100% AC coverage; every UoW has a Demo script; every ticket has a done-when checklist; generated files present |
-| G4 | Construction | code + tests | All tickets `done` — reached via `submit` → `accept`, not self-approved; every UoW definition-of-done ticked |
+| G4 | Construction | code + tests | All tickets `done` — reached via `submit` → `accept`, not self-approved; every UoW definition-of-done ticked; from ruleset 5, each done ticket carries a recorded run that exited 0 — when the repo configures `evidence:` |
 | G5 | Close | ADRs, resolved register | No assumption left pending; no ADR proposed; graph still validates |
 
 Read `references/methodology.md` for what each phase actually involves, and
@@ -53,20 +53,30 @@ aidlc status                          # gate, blockers, next action
 aidlc check G1                        # preconditions, changes nothing
 aidlc pass G1 --by <name>             # advance; refused unless check passes
 aidlc ready                           # tickets whose dependencies are met
+aidlc flow                            # cycle time, review lag, blocked time, estimate bias
 aidlc start  T-01-01 --by <name>      # refused if gate < G3 or deps unmet
 aidlc submit T-01-01 --by <name>      # → review; refused if done-when items unticked
-aidlc accept T-01-01 --by <human>     # → done; refused unless the ticket is in review
+aidlc accept T-01-01 --by <human>     # → done; refused unless a *different* actor submitted it
 aidlc reject T-01-01 --by <human> --reason <text>
 aidlc done   T-01-01 --by <name> --no-review    # solo shortcut; bypass is recorded
+aidlc block  T-01-01 --by <name> --reason <text>   # waiting on something; off `ready`
+aidlc unblock T-01-01 --by <name>     # restores the state the block interrupted
+aidlc evidence T-01-01                # the recorded verification runs for one ticket
 aidlc lint-touches --repo <path>      # every touches path exists or is marked new
 aidlc snapshot --to <dir> --label <repo>        # portable JSON for the collector
 aidlc audit                           # the approval trail
 aidlc reopen G2 --by <name> --reason <text>
 ```
 
-An implementer cannot accept its own work: `submit` and `accept` are separate commands
-requiring separate names. A ticket sitting in `review` keeps its dependents blocked, so
-review lag shows up as stalled parallelism rather than as invisible debt.
+An implementer cannot accept its own work, and this is a refusal rather than an
+expectation: `accept` reads the trail for who ran `submit` and exits 1 when it is the same
+actor. A ticket sitting in `review` keeps its dependents blocked, so review lag shows up as
+stalled parallelism rather than as invisible debt.
+
+Actors are compared as normalised names — case and surrounding whitespace do not make a
+new person — so this stops the plausible shortcut, not impersonation. Anyone can still type
+someone else's name, and the trail will show that they did. `done --no-review` remains the
+solo escape hatch, and records the bypass.
 
 `init` names the directory `YYYYMMDDNN-<name>` — the date planning started, then that
 day's sequence, then the feature name. A name is not unique over time; the same one comes
@@ -107,7 +117,20 @@ and status live in `.ai/features/YYYYMMDDNN-<name>/`.
 **6. The graph is the plan.** Order is `depends_on`, never position in a list. Waves,
 critical path and readiness are computed, never hand-written.
 
-**7. Reopening is normal; hiding it is not.** When reality contradicts the plan, run
+**7. Waiting is a state, not a silence.** A ticket held up by something outside the plan
+goes through `aidlc block` with a reason, never a hand-edited status. The block records
+what state it interrupted, so `unblock` restores it instead of guessing — and the wait
+becomes a number `aidlc flow` can report rather than something only the person waiting
+knows.
+
+**8. Measure the work, not the worker.** `aidlc flow` folds the trail into cycle time,
+review lag, blocked time and estimate bias, from events the controller already wrote. It
+is reported per ticket and per feature and is not a measure of anyone who worked on them;
+the moment it is read that way, people start optimising the trail instead of the work, and
+the record stops being worth having. Estimate bias from a finished feature is the input to
+the next one's estimates — that is the part that compounds.
+
+**9. Reopening is normal; hiding it is not.** When reality contradicts the plan, run
 `aidlc reopen` with a reason and fix the artifact before the code. A plan that silently
 diverges from the repo is worse than no plan.
 
@@ -137,7 +160,18 @@ diverges from the repo is worse than no plan.
 profile: none              # or a profile name, e.g. profile-flutter
 ruleset: 4                 # pins the rules this plan was authored under
 layers: [domain, data, presentation, infra, test]
+
+evidence:                  # optional; absent means nothing is ever executed
+  command: "pnpm vitest run {tests}"
+  timeout: 600
+  output_ceiling: 8192
+  aging_hours: 48
 ```
+
+With an `evidence:` block, `submit` runs the ticket's tests and records the result on the
+trail; a non-zero exit refuses the transition. Without one, nothing executes and the
+controller behaves exactly as it did before. A block that is present but malformed is
+refused rather than treated as absent — see `references/templates.md`.
 
 `ruleset` pins the version of the rules the plan was written against. Centralised tooling
 means one upgrade can invalidate plans in every repo at once, so a mismatch produces an
@@ -188,3 +222,5 @@ Read at the phase that needs them, not upfront.
 | Assumption register empty | Assumed silently | Every question you didn't ask is an assumption |
 | Ticket estimated a full day | Hidden unknowns | Split until each piece is ≤ 4h |
 | Eight rounds of clarification | Interrogating turn by turn | One batch, ≤ 7 questions, ≤ 1 follow-up; the rest become assumptions |
+| Ticket hand-edited to `status: blocked` | Waiting recorded outside the controller — `unblock` refuses, because no block event says what to restore | Set it back, then `aidlc block --reason`; the wait belongs on the trail |
+| Estimates never improve | Actuals never compared to them | `aidlc flow` — the bias is already in the trail, nobody has to enter it |

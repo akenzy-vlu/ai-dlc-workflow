@@ -339,6 +339,65 @@ preserving them on list items.
 Worth stating because it is the argument for the dry run: two features written weeks apart
 conflicted, and only running the whole chain in order exposed it.
 
+## After installing a ruleset upgrade
+
+`ai-dlc-core` is installed globally, so copying a new version into `~/.claude/skills/`
+changes the controller for **every** repo on the machine at once — including ones nobody
+is looking at today. Ruleset 5 is the first upgrade to change what a gate accepts, and the
+compatibility design is per plan rather than per repo: `aidlc init` stamps the tool's
+ruleset into `.aidlc-state.yaml`, and a plan with no stamp is judged under ruleset 4. Every
+plan that existed before the upgrade is unstamped, so nothing in the field changes verdict.
+
+That is the intent. This is how you confirm it, per repo, in about a minute:
+
+```bash
+cp -r skills/ai-dlc-core ~/.claude/skills/          # the upgrade
+uowg --version                                       # -> uow_graph 0.5.0 (ruleset 5)
+
+# for each repo that has plans — erp2, erp3, jack-erp, ...
+cd <repo>
+for f in .ai/features/*/; do
+  aidlc -d "$f" check G4     # verdict must match what it was before the upgrade
+done
+```
+
+What you should see, and what each thing means:
+
+| Output | Meaning |
+| ------ | ------- |
+| `plan authored under ruleset 4 — judged by those rules` | Correct. The plan predates the upgrade and is unaffected |
+| `warn: plan was authored under ruleset 4, tool enforces 5` | The repo-level pin in `.ai/aidlc.yaml` is advisory. Bump it to `5` when you want *new* plans in that repo held to the new rule |
+| A verdict that changed | A defect in the upgrade, not in your plan. Roll back the install and say so |
+
+Verdicts must be identical; **warnings may differ** — the migration hint is new by design.
+
+This was run against the three plans closed in this repo before shipping ruleset 5:
+`2026082801-agent-chat-console` (G4 pass, G5 fail — pre-existing, a pending assumption),
+`2026082901-ticket-detail-drawer` and `2026082902-skill-file-viewer` (both pass). Six
+checks, six identical verdicts, the only difference being the new warning line.
+
+### The console reads the same files
+
+`apps/api` shells out to this controller and parses the same artifacts, and
+`filesystem-feature-plan.reader.ts` deliberately mirrors `REQUIRED_INTENT_SECTIONS` and
+`assumption_rows` from `aidlc.py`. Ruleset 5 touches neither of those, but it does add a
+top-level `ruleset:` key to `.aidlc-state.yaml` and a new `action: evidence` to the trail,
+so the reader has to tolerate both:
+
+```bash
+pnpm skills:check && pnpm typecheck && pnpm test
+git diff --stat -- apps/          # must be empty; this change edits nothing there
+```
+
+Checked before shipping ruleset 5: 27 test files / 184 tests green, both typechecks clean,
+and `FilesystemGateStateReader` verified against a real ruleset-5 state file carrying
+evidence entries — it stores unknown top-level scalars and ignores them, and an unfamiliar
+`action` reaches `AuditEntry` as a plain string. Nothing under `apps/` was edited.
+
+Turning verification *on* for a repo is a separate, opt-in step — add an `evidence:` block
+to its `.ai/aidlc.yaml` (see `skills/ai-dlc-core/references/templates.md`). Until you do,
+nothing is ever executed and G4 asks for no runs.
+
 ## Reference
 
 | Need                                         | Read                                                         |
