@@ -5,3 +5,6 @@ export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
 export const TERMINAL_RUN_STATUSES: readonly AgentRunStatus[] = ['succeeded', 'failed', 'cancelled'];
 
 export type AgentLogStream = 'stdout' | 'stderr' | 'console';
+
+export const AGENT_ACTIVITY_KINDS = ['tool', 'text', 'thinking', 'result'] as const;
+export type AgentActivityKind = (typeof AGENT_ACTIVITY_KINDS)[number];

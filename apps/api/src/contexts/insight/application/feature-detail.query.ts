@@ -145,6 +145,8 @@ export class FeatureDetailQuery implements Query<FeatureDetailInput, FeatureDeta
         touches: [...ticket.touches],
         assumptions: [...ticket.assumptions],
         doneWhen: ticket.doneWhen.map((i) => ({ text: i.text, done: i.done })),
+        context: ticket.context,
+        implementationNotes: ticket.implementationNotes,
         unmetDependencies: graph.unmetDependencyCount(ticket),
         ready: readyIds.has(ticket.id.value),
         onCriticalPath: onCriticalPath.has(ticket.id.value),

@@ -20,7 +20,30 @@ import { AgentCatalogPort } from '../domain/ports/agent.ports';
  */
 const BUILT_IN: AgentConfigEntry[] = [
   // `-p` is print mode: run once, write to stdout, exit. Without it the CLI is a REPL.
-  { id: 'claude', label: 'Claude Code', binary: 'claude', args: ['-p'], promptVia: 'stdin' },
+  //
+  // `--output-format stream-json` is what makes a run legible: one JSON object per event,
+  // which the translator turns into tool activity and telemetry. Without it the CLI prints
+  // prose, `translateStreamJson` returns null for every line, and no session id is ever
+  // reported — so no run is resumable and the whole reply path is dark.
+  //
+  // `--verbose` is not decoration: the CLI rejects `--output-format stream-json` with
+  // `--print` unless it is present, and a rejected invocation reads as an agent that
+  // cannot start.
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    binary: 'claude',
+    args: ['-p', '--output-format', 'stream-json', '--verbose'],
+    // Verified against `claude --help` on 2026-08-28: `-r, --resume [value]` — "Resume a
+    // conversation by session ID". The reply arrives on stdin exactly as a brief does.
+    resumeArgs: ['-r', '{{session}}', '-p', '--output-format', 'stream-json', '--verbose'],
+    promptVia: 'stdin',
+  },
+  // The three below declare no `resumeArgs`, which reads as *unverified*, not unsupported.
+  // Each has its own answer and none was checked here; a guessed flag does not fail, it
+  // opens an interactive session that hangs behind a pipe until the run's timeout kills
+  // it, holding the ticket's only run slot for the whole wait. Add one to `agents.json`
+  // once you have confirmed it against the CLI you actually have.
   { id: 'codex', label: 'OpenAI Codex', binary: 'codex', args: ['exec', '{{prompt}}'], promptVia: 'arg' },
   { id: 'cursor-agent', label: 'Cursor Agent', binary: 'cursor-agent', args: ['-p'], promptVia: 'stdin' },
   { id: 'copilot', label: 'GitHub Copilot CLI', binary: 'copilot', args: ['-p', '{{prompt}}'], promptVia: 'arg' },
@@ -55,6 +78,7 @@ export class PathAgentCatalog implements AgentCatalogPort {
           label: entry.label ?? entry.id,
           binary: entry.binary,
           args: entry.args ?? [],
+          resumeArgs: entry.resumeArgs ?? null,
           promptVia: entry.promptVia ?? 'stdin',
           available: resolved !== null,
           resolvedPath: resolved,

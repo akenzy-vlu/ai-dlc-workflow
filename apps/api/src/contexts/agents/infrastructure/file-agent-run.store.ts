@@ -21,6 +21,8 @@ interface PersistedRun {
   command: string;
   promptPreview: string;
   createdAt: string;
+  /** Absent on every run written before replies existed, and absent means "not a reply". */
+  parentRunId?: string | null;
   status: RunStatus;
   exitCode: number | null;
   startedAt: string | null;
@@ -122,6 +124,7 @@ export class FileAgentRunStore implements AgentRunStorePort {
       command: run.command,
       promptPreview: run.promptPreview,
       createdAt: run.createdAt,
+      parentRunId: run.parentRunId,
       status: run.status,
       exitCode: run.exitCode,
       startedAt: run.startedAt,

@@ -45,6 +45,7 @@ export function SkillsPageView({
   onRefresh,
   onSync,
   onInstall,
+  onOpenFiles,
 }: SkillsPageViewProps) {
   const columns: ColumnsType<Skill> = [
     {
@@ -138,6 +139,10 @@ export function SkillsPageView({
         loading={loading}
         pagination={false}
         size="middle"
+        onRow={(skill) => ({
+          onClick: () => onOpenFiles(skill.id),
+          style: { cursor: 'pointer' },
+        })}
         locale={{
           emptyText: (
             <EmptyHint
@@ -234,7 +239,12 @@ function TargetRow({
           type={current ? 'default' : 'primary'}
           loading={busy}
           icon={isGlobal ? <CloudUploadOutlined /> : <DownloadOutlined />}
-          onClick={() => (isGlobal ? onSync(skill.id) : onInstall(skill.id, installation.targetId))}
+          onClick={(e) => {
+            // The row itself opens the file drawer on click (AC-09); this button must keep
+            // working independently rather than also opening the drawer underneath it.
+            e.stopPropagation();
+            isGlobal ? onSync(skill.id) : onInstall(skill.id, installation.targetId);
+          }}
         >
           {/* Re-installing an identical package is allowed but pointless, so the label
               stops advertising it as an update once the target already matches. */}

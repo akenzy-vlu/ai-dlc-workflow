@@ -26,6 +26,15 @@ export interface AgentRunProps {
   command: string;
   promptPreview: string;
   createdAt: string;
+  /**
+   * The run this one answers, or null for a first launch.
+   *
+   * A reply is a run: its `promptPreview` is the message, and this is the only link a
+   * thread needs. Deliberately not paired with a `children` collection — the thread is a
+   * query over `list({repositoryId, slug, ticketId})` ordered by `createdAt`, and an
+   * aggregate holding its own descendants would be a second copy to keep coherent by hand.
+   */
+  parentRunId?: string | null;
 }
 
 /**
@@ -90,6 +99,13 @@ export class AgentRun extends AggregateRoot<string> {
   }
   get createdAt(): string {
     return this.props.createdAt;
+  }
+  get parentRunId(): string | null {
+    return this.props.parentRunId ?? null;
+  }
+  /** Whether this run continues an earlier one rather than starting the work. */
+  get isReply(): boolean {
+    return this.parentRunId !== null;
   }
   get status(): RunStatus {
     return this._status;
@@ -160,9 +176,17 @@ export class AgentRun extends AggregateRoot<string> {
     this._telemetry = next;
   }
 
-  /** Restores a persisted run's counters without replaying its stream. */
+  /**
+   * Restores a persisted run's counters without replaying its stream.
+   *
+   * Merged over `emptyTelemetry()` rather than assigned. A run written before a counter
+   * existed has no key for it, and a bare assign would restore that field as `undefined` —
+   * which is neither the `null` that means "not reported" nor a number, and which
+   * disappears entirely the next time the object is serialised. Widening this interface is
+   * expected; losing the older runs to it is not.
+   */
   restoreTelemetry(telemetry: AgentTelemetry): void {
-    this._telemetry = telemetry;
+    this._telemetry = { ...emptyTelemetry(), ...telemetry };
   }
 
   finish(exitCode: number, at: string, cancelled = false): void {

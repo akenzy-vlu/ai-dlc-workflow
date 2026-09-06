@@ -21,6 +21,8 @@ interface Row {
   cwd: string;
   command: string;
   prompt_preview: string;
+  /** Null on every row written before 003; null means "not a reply". */
+  parent_run_id: string | null;
   status: RunStatus;
   exit_code: number | null;
   created_at: Date;
@@ -56,9 +58,9 @@ export class PgAgentRunStore implements AgentRunStorePort {
     await this.db.query(
       `INSERT INTO agent_run (
          id, repository_id, repository_label, slug, ticket_id, agent_id, agent_label,
-         launched_by, acting_as, cwd, command, prompt_preview, status, exit_code,
+         launched_by, acting_as, cwd, command, prompt_preview, parent_run_id, status, exit_code,
          created_at, started_at, finished_at, log, activities, telemetry
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status, exit_code = EXCLUDED.exit_code,
          started_at = EXCLUDED.started_at, finished_at = EXCLUDED.finished_at,
@@ -66,7 +68,7 @@ export class PgAgentRunStore implements AgentRunStorePort {
       [
         run.id, run.repositoryId, run.repositoryLabel, run.slug, run.ticketId,
         run.agentId, run.agentLabel, run.launchedBy, run.actingAs, run.cwd,
-        run.command, run.promptPreview, run.status, run.exitCode,
+        run.command, run.promptPreview, run.parentRunId, run.status, run.exitCode,
         run.createdAt, run.startedAt, run.finishedAt,
         // Keep the tail: the end of an agent transcript is where the failure is.
         JSON.stringify(log.length > MAX_PERSISTED_LINES ? log.slice(-MAX_PERSISTED_LINES) : log),
@@ -134,6 +136,7 @@ export class PgAgentRunStore implements AgentRunStorePort {
       cwd: row.cwd,
       command: row.command,
       promptPreview: row.prompt_preview,
+      parentRunId: row.parent_run_id,
       createdAt: row.created_at.toISOString(),
     });
     if (row.started_at) run.start(row.started_at.toISOString());

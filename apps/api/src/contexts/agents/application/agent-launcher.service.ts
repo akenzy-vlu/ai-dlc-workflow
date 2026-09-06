@@ -36,6 +36,15 @@ export interface LaunchAgentInput {
   acknowledged: boolean;
 }
 
+export interface ReplyToRunInput {
+  runId: string;
+  message: string;
+  repliedBy: string;
+  timeoutMinutes?: number;
+  /** Same acknowledgement a launch requires: this spawns a CLI that writes files. */
+  acknowledged: boolean;
+}
+
 /**
  * `line` carries transcript output, `activity` carries a structured step. Both null means
  * a lifecycle change — started, finished, cancelled — and that is the only case a client
@@ -74,6 +83,9 @@ export class AgentLauncherService {
       available: a.available,
       resolvedPath: a.resolvedPath,
       promptVia: a.promptVia,
+      // Whether a finished run by this agent can be answered rather than relaunched. The
+      // client shows the reason a reply box is disabled; it must not re-derive the rule.
+      canResume: a.canResume,
     }));
   }
 
@@ -172,6 +184,133 @@ export class AgentLauncherService {
     return { runId: run.id };
   }
 
+  /**
+   * Continues the conversation a finished run already had.
+   *
+   * The difference from `launch` that matters is not in what it does but in what it
+   * deliberately does not: it asks the controller for nothing. `launch` moves a `todo`
+   * ticket to `in_progress` before spawning; a reply requests no transition at all and
+   * inherits whatever status the ticket has. That is what makes "chat cannot move a gate"
+   * true by construction rather than by care — there is no code path from here to
+   * `TicketOperations.transition`, and `test/agent-reply.spec.ts` asserts it stays that way.
+   *
+   * The rest is `launch`'s own rules, reused rather than reimplemented: the same
+   * acknowledgement, the same one-run-per-ticket conflict, the same `execute` — which is
+   * why a reply gets the same hand-off, the same failure handling and the same
+   * cancellation as any other run.
+   */
+  async reply(input: ReplyToRunInput): Promise<{ runId: string }> {
+    if (!input.acknowledged) {
+      throw new BadRequestException(
+        'refused: a reply runs an agent CLI that writes files in a real checkout — the caller must acknowledge it',
+      );
+    }
+    const message = input.message.trim();
+    if (!message) throw new BadRequestException('a reply needs something to say');
+    if (!input.repliedBy.trim()) {
+      throw new BadRequestException('`repliedBy` is required — a reply is attributed to a person');
+    }
+
+    const parent = await this.store.find(input.runId);
+    if (!parent) throw new NotFoundException(`no such run: ${input.runId}`);
+
+    const definition = await this.catalog.find(parent.agentId);
+    if (!definition) throw new NotFoundException(`unknown agent: ${parent.agentId}`);
+
+    const { ticket, repository } = await this.resolve(parent.repositoryId, parent.slug, parent.ticketId);
+    const refusal = this.replyRefusal(parent, definition, ticket.status.isDone, await this.activeOn(parent));
+    if (refusal) throw new ConflictException(refusal);
+
+    // Not null: replyRefusal already refused a parent with no session.
+    const sessionId = parent.telemetry.sessionId as string;
+    const actingAs = `${definition.label} (via ${input.repliedBy.trim()})`;
+
+    const run = AgentRun.create({
+      id: randomUUID(),
+      repositoryId: parent.repositoryId,
+      repositoryLabel: parent.repositoryLabel,
+      slug: parent.slug,
+      ticketId: parent.ticketId,
+      agentId: definition.id,
+      agentLabel: definition.label,
+      launchedBy: input.repliedBy.trim(),
+      actingAs,
+      cwd: repository.absolutePath,
+      command: `${definition.binary} ${definition.argsForResume(sessionId, '<prompt>').join(' ')}`,
+      // The message alone. The brief the agent worked from is still in the conversation
+      // the CLI holds — re-sending it is the cost this whole feature exists to remove.
+      promptPreview: message,
+      createdAt: new Date().toISOString(),
+      parentRunId: parent.id,
+    });
+
+    await this.store.save(run);
+    void this.execute(run, definition, message, input.timeoutMinutes, sessionId);
+    return { runId: run.id };
+  }
+
+  /**
+   * A ticket's agent work as one conversation, oldest first.
+   *
+   * `canReply` is resolved here rather than in the client, and `cannotReplyReason` is the
+   * sentence the client shows verbatim. Two copies of this rule would drift, and the copy
+   * that drifts is the one that offers a reply box for a run that cannot take one.
+   */
+  async thread(repositoryId: string, slug: string, ticketId: string) {
+    const { ticket } = await this.resolve(repositoryId, slug, ticketId);
+    const runs = (await this.store.list({ repositoryId, slug, ticketId })).sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
+
+    const latest = runs.length ? runs[runs.length - 1] : null;
+    let reason: string | null = 'no agent has worked on this ticket yet — launch one first';
+    if (latest) {
+      const definition = await this.catalog.find(latest.agentId);
+      reason = definition
+        ? this.replyRefusal(latest, definition, ticket.status.isDone, runs.some((r) => !r.isTerminal))
+        : `${latest.agentLabel} is not configured on this machine any more`;
+    }
+
+    return {
+      repositoryId,
+      slug,
+      ticketId,
+      runs: runs.map((run) => this.summarise(run)),
+      replyTo: reason === null && latest ? latest.id : null,
+      canReply: reason === null,
+      cannotReplyReason: reason,
+    };
+  }
+
+  /** The error taxonomy, in one place, so `reply` and `thread` cannot disagree. */
+  private replyRefusal(
+    parent: AgentRun,
+    definition: { label: string; canResume: boolean },
+    ticketIsDone: boolean,
+    hasActiveRun: boolean,
+  ): string | null {
+    if (hasActiveRun) return `${parent.ticketId} already has an agent working on it`;
+    if (ticketIsDone) return `${parent.ticketId} is already done — a finished ticket is not a place to keep talking`;
+    if (!parent.telemetry.sessionId) {
+      return (
+        'this run reported no session — the CLI was not run with `--output-format stream-json`, ' +
+        'so there is no conversation to continue'
+      );
+    }
+    if (!definition.canResume) {
+      return (
+        `${definition.label} declares no resume invocation, so this console will not guess one — ` +
+        'start a fresh run instead'
+      );
+    }
+    return null;
+  }
+
+  private async activeOn(run: AgentRun): Promise<boolean> {
+    const active = await this.store.list({ ticketId: run.ticketId, active: true });
+    return active.some((r) => r.slug === run.slug && r.repositoryId === run.repositoryId);
+  }
+
   async cancel(runId: string): Promise<{ cancelled: boolean }> {
     const run = await this.store.find(runId);
     if (!run) throw new NotFoundException(`no such run: ${runId}`);
@@ -183,6 +322,7 @@ export class AgentLauncherService {
     definition: Awaited<ReturnType<AgentCatalogPort['find']>> & object,
     prompt: string,
     timeoutMinutes?: number,
+    resumeSessionId?: string,
   ): Promise<void> {
     const minutes = Math.min(Math.max(timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES, 1), MAX_TIMEOUT_MINUTES);
     run.start(new Date().toISOString());
@@ -194,6 +334,7 @@ export class AgentLauncherService {
         run,
         definition,
         prompt,
+        resumeSessionId,
         timeoutMs: minutes * 60_000,
         onLine: (line) => {
           run.append(line);
@@ -293,12 +434,17 @@ export class AgentLauncherService {
       finishedAt: run.finishedAt,
       command: run.command,
       cwd: run.cwd,
+      // The reply text for a reply, the full brief for a first launch. A thread has
+      // nowhere else to show what a run was actually asked to do.
+      promptPreview: run.promptPreview,
       lineCount: run.log.length,
       suggestsSubmit: run.suggestsSubmit,
       currentActivity: run.currentActivity,
       activityCount: run.activities.length,
       telemetry: run.telemetry,
       isResumable: run.isResumable,
+      parentRunId: run.parentRunId,
+      isReply: run.isReply,
     };
   }
 

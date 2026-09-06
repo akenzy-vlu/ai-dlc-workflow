@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { PortfolioModule } from '../portfolio/portfolio.module';
 import { InstallSkill } from './application/install-skill.use-case';
+import { SkillFiles } from './application/skill-files.use-case';
 import { SkillInventory } from './application/skill-inventory.use-case';
 import { SKILL_CATALOG } from './domain/ports/skill-catalog.port';
 import { SKILL_INSTALLER } from './domain/ports/skill-installer.port';
@@ -21,6 +22,7 @@ import { SkillsController } from './interface/skills.controller';
   providers: [
     SkillInventory,
     InstallSkill,
+    SkillFiles,
     { provide: SKILL_CATALOG, useClass: FilesystemSkillCatalog },
     { provide: SKILL_INSTALLER, useClass: FilesystemSkillInstaller },
   ],

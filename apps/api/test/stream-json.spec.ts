@@ -113,3 +113,95 @@ describe('stream-json translator', () => {
     expect(out?.telemetry.sessionId).toBe('d995a168');
   });
 });
+
+/**
+ * One whole run, recorded from `claude -p --output-format stream-json --verbose` on
+ * 2026-08-28 and trimmed of its payload bulk.
+ *
+ * The individual cases above pin each event shape. This pins the thing a person actually
+ * sees: turning the flag on by default (T-01-01) changed what every run's transcript looks
+ * like for anyone who never overrode `agents.json`, and a wall of JSON where prose used to
+ * be is the failure that would make them turn it back off.
+ */
+const RECORDED_RUN = [
+  '{"type":"system","subtype":"init","session_id":"fa589dc9","cwd":"/repo","model":"claude-opus-5[1m]","tools":["Bash","Edit","Read"]}',
+  '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"fa589dc9"}',
+  '{"type":"assistant","session_id":"fa589dc9","message":{"model":"claude-opus-5","role":"assistant","content":[{"type":"text","text":"ok"}]}}',
+  '{"type":"result","subtype":"success","session_id":"fa589dc9","is_error":false,"num_turns":1,"duration_ms":1756,"total_cost_usd":0.0819455,"usage":{"input_tokens":2,"output_tokens":4,"cache_read_input_tokens":10103,"cache_creation_input_tokens":7583}}',
+];
+
+describe('a whole recorded run', () => {
+  const replay = () => {
+    let sessionId: string | null = null;
+    const transcript: string[] = [];
+    for (const line of RECORDED_RUN) {
+      const out = translateStreamJson(line, AT);
+      expect(out).not.toBeNull();
+      // mergeTelemetry's rule, exercised through a real sequence rather than a synthetic
+      // patch: undefined and null in a patch leave the current value alone.
+      if (out!.telemetry.sessionId != null) sessionId = out!.telemetry.sessionId;
+      if (out!.transcript !== null) transcript.push(out!.transcript);
+    }
+    return { sessionId, transcript };
+  };
+
+  it('renders as prose and tool lines, never as raw JSON', () => {
+    const { transcript } = replay();
+    const joined = transcript.join('\n');
+
+    expect(joined).not.toContain('{"type":');
+    expect(joined).not.toContain('session_id');
+    expect(joined).toContain('ok');
+  });
+
+  it('keeps the session id that arrived on the first event', () => {
+    // Every later frame carries it too, but the ones that do not must not clear it —
+    // without a surviving session id no run is resumable and the reply path is dark.
+    expect(replay().sessionId).toBe('fa589dc9');
+  });
+
+  it('drops the rate-limit frame instead of printing it', () => {
+    const out = translateStreamJson(RECORDED_RUN[1], AT);
+
+    expect(out?.transcript).toBeNull();
+    expect(out?.activities).toEqual([]);
+  });
+});
+
+/**
+ * A-05, settled against the recording rather than against a guess.
+ *
+ * The register carried it as pending because no fixture here had a `usage` block at all —
+ * the keys were assumed from documentation. These assertions are the evidence, and if the
+ * CLI's envelope ever renames one of them this is the test that says so.
+ */
+describe('token counts on the recorded run', () => {
+  const RESULT = RECORDED_RUN[RECORDED_RUN.length - 1];
+
+  it('reads the four counts the real result frame carries', () => {
+    const out = translateStreamJson(RESULT, AT);
+
+    expect(out?.telemetry.inputTokens).toBe(2);
+    expect(out?.telemetry.outputTokens).toBe(4);
+    expect(out?.telemetry.cacheReadTokens).toBe(10_103);
+    expect(out?.telemetry.cacheWriteTokens).toBe(7583);
+  });
+
+  it('reports nothing rather than zero when the same frame carries no usage', () => {
+    // Not reported and "used none" have to stay distinguishable: the translator omits the
+    // keys, mergeTelemetry leaves them alone, and the run keeps the nulls it started with.
+    const stripped = JSON.parse(RESULT) as Record<string, unknown>;
+    delete stripped.usage;
+    const out = translateStreamJson(JSON.stringify(stripped), AT);
+
+    expect(out?.telemetry.inputTokens).toBeUndefined();
+    expect(out?.telemetry.outputTokens).toBeUndefined();
+    expect(out?.telemetry.cacheReadTokens).toBeUndefined();
+    expect(out?.telemetry.cacheWriteTokens).toBeUndefined();
+    expect(out?.telemetry.costUsd).toBe(0.0819455);
+  });
+
+  it('keeps the counts out of the human summary line', () => {
+    expect(translateStreamJson(RESULT, AT)?.transcript).toBe('— 1 turn · 1.8s · $0.0819');
+  });
+});

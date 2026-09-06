@@ -33,6 +33,29 @@ const DETAIL_FIELDS: Record<string, string[]> = {
 const DETAIL_LIMIT = 180;
 const TEXT_LIMIT = 400;
 
+/**
+ * The token counts out of a `result` event's `usage` block.
+ *
+ * Read defensively and left null on anything unexpected — a CLI that reports nothing and
+ * one whose envelope changed should look the same, and neither is an error. Null is not
+ * zero: zero is a number a run reported, and rendering the two alike tells someone a paid
+ * run was free.
+ *
+ * Deliberately absent from the one-line result transcript. That line is the human summary —
+ * turns, seconds, dollars — and four more numbers would bury the two that matter.
+ */
+function usageCounts(raw: unknown): Partial<AgentTelemetry> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const usage = raw as Record<string, unknown>;
+  const count = (key: string): number | null => (typeof usage[key] === 'number' ? (usage[key] as number) : null);
+  return {
+    inputTokens: count('input_tokens'),
+    outputTokens: count('output_tokens'),
+    cacheReadTokens: count('cache_read_input_tokens'),
+    cacheWriteTokens: count('cache_creation_input_tokens'),
+  };
+}
+
 function clip(value: unknown, limit: number): string {
   const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
   const flat = text.replace(/\s+/g, ' ').trim();
@@ -124,7 +147,13 @@ export function translateStreamJson(line: string, at: string): Translated | null
     ].filter(Boolean);
     return {
       activities: parts.length ? [{ at, kind: 'result', text: parts.join(' · ') }] : [],
-      telemetry: { costUsd: cost, numTurns: turns, durationMs: duration, ...(sessionId ? { sessionId } : {}) },
+      telemetry: {
+        costUsd: cost,
+        numTurns: turns,
+        durationMs: duration,
+        ...usageCounts(event.usage),
+        ...(sessionId ? { sessionId } : {}),
+      },
       transcript: parts.length ? `— ${parts.join(' · ')}` : null,
     };
   }

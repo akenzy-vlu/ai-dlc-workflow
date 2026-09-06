@@ -3,6 +3,8 @@ export * from './feature.entity';
 export * from './insight.entity';
 export * from './verification.entity';
 export * from './agent.entity';
+export * from './agent-thread.entity';
 export * from './evidence-archive.entity';
 export * from './skill.entity';
+export * from './skill-file.entity';
 export * from './directory.entity';

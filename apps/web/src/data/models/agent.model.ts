@@ -7,6 +7,27 @@ export interface AgentDefinitionModel {
   promptVia: string;
 }
 
+export interface AgentTelemetryModel {
+  sessionId: string | null;
+  model: string | null;
+  costUsd: number | null;
+  numTurns: number | null;
+  durationMs: number | null;
+  toolCalls: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+}
+
+export interface AgentActivityModel {
+  at: string;
+  kind: string;
+  tool?: string;
+  detail?: string;
+  text?: string;
+}
+
 export interface AgentRunModel {
   id: string;
   repositoryId: string;
@@ -24,8 +45,15 @@ export interface AgentRunModel {
   finishedAt: string | null;
   command: string;
   cwd: string;
+  /** The reply text for a reply, the full brief for a first launch. */
+  promptPreview: string;
   lineCount: number;
   suggestsSubmit: boolean;
+  telemetry: AgentTelemetryModel;
+  isResumable: boolean;
+  parentRunId: string | null;
+  isReply: boolean;
+  currentActivity: AgentActivityModel | null;
 }
 
 export interface AgentLogLineModel {

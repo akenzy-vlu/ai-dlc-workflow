@@ -98,4 +98,16 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE IF EXISTS agent_definition;
     `,
   },
+  {
+    id: '003-agent-run-parent',
+    sql: `
+      -- A reply is a run: its prompt_preview is the message, and this is the only link a
+      -- thread needs. Nullable with no default and no backfill — every run written before
+      -- replies existed is a first launch, which is exactly what NULL says.
+      --
+      -- Token counts need no column: telemetry is already JSONB, and an object that
+      -- predates a counter restores it as null through AgentRun.restoreTelemetry.
+      ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS parent_run_id TEXT;
+    `,
+  },
 ];

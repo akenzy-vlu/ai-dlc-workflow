@@ -1,4 +1,5 @@
 import {
+  AGENT_ACTIVITY_KINDS,
   AGENT_RUN_STATUSES,
   GATE_ORDER,
   INBOX_KINDS,
@@ -7,6 +8,7 @@ import {
   SEARCH_KINDS,
   VERIFICATION_RUNGS,
   WORK_STATUSES,
+  type AgentActivityKind,
   type AgentRunStatus,
   type GateValue,
   type InboxKind,
@@ -50,6 +52,9 @@ export const toVerificationRung = (value: string | null | undefined): Verificati
 
 export const toAgentRunStatus = (value: string | null | undefined): AgentRunStatus =>
   narrow(value, AGENT_RUN_STATUSES, 'queued');
+
+export const toAgentActivityKind = (value: string | null | undefined): AgentActivityKind =>
+  narrow(value, AGENT_ACTIVITY_KINDS, 'text');
 
 export const toProjectOrigin = (value: string | null | undefined): ProjectOrigin =>
   narrow(value, PROJECT_ORIGINS, 'path');

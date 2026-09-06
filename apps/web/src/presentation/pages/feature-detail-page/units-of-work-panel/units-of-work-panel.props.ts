@@ -13,6 +13,8 @@ export interface UnitsOfWorkPanelViewProps {
   defaultOpenKeys: string[];
   launchFor: Ticket | null;
   openRunId: string | null;
+  openTicket: Ticket | null;
   onLaunch: (ticket: Ticket | null) => void;
   onOpenRun: (runId: string | null) => void;
+  onOpenTicket: (ticket: Ticket | null) => void;
 }

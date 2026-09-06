@@ -8,4 +8,6 @@ export interface SkillsPageViewProps {
   onRefresh: () => void;
   onSync: (skillId: string) => void;
   onInstall: (skillId: string, repositoryId: string) => void;
+  /** Opens the file-browsing drawer for this skill's catalog id. */
+  onOpenFiles: (skillId: string) => void;
 }

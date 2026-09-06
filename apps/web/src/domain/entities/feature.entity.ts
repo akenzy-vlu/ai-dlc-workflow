@@ -130,6 +130,10 @@ export interface Ticket {
   touches: string[];
   assumptions: string[];
   doneWhen: ChecklistItem[];
+  /** The `## Context` section, verbatim. Null when the ticket file has no such heading. */
+  context: string | null;
+  /** The `## Implementation notes` section, verbatim. Null when there is none. */
+  implementationNotes: string | null;
   unmetDependencies: number;
   ready: boolean;
   onCriticalPath: boolean;

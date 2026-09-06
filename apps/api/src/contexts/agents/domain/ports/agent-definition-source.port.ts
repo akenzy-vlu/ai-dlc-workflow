@@ -7,6 +7,13 @@ export interface AgentConfigEntry {
   binary: string;
   args?: string[];
   promptVia?: 'stdin' | 'arg';
+  /**
+   * Argv for continuing an existing conversation, with `{{session}}` where the id goes.
+   *
+   * Absent means this CLI cannot resume, and that is the safe default. A guessed flag does
+   * not error — it opens an interactive session that hangs forever behind a pipe.
+   */
+  resumeArgs?: string[];
 }
 
 /**

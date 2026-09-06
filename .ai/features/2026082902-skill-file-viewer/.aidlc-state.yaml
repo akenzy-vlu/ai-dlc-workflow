@@ -1,0 +1,143 @@
+# Managed by scripts/aidlc.py — do not edit by hand.
+# Editing this file to skip a gate defeats the point of having one.
+feature: skill-file-viewer
+slug: 2026082902-skill-file-viewer
+profile: none
+created: 2026-08-29T12:25:23
+current_gate: G5
+history:
+  - gate: G0
+    action: passed
+    at: 2026-08-29T20:48:29
+    by: Akenzy
+    evidence: architecture map verified by Akenzy; 00-intent.md complete
+  - gate: G1
+    action: passed
+    at: 2026-08-29T20:48:34
+    by: Akenzy
+    evidence: 10 assumptions, none blocking-and-pending; 11 acceptance criteria defined
+  - gate: G2
+    action: passed
+    at: 2026-08-29T20:48:39
+    by: Akenzy
+    evidence: 3 ADR(s) recorded
+  - gate: G3
+    action: passed
+    at: 2026-08-29T20:48:44
+    by: Akenzy
+    evidence: graph valid - 2 UoW, 7 tickets, no cycles
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T20:52:09
+    by: Claude
+    ticket: T-01-04
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T20:52:14
+    by: Claude
+    ticket: T-01-01
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T20:52:59
+    by: Claude
+    ticket: T-01-04
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T20:53:35
+    by: Akenzy
+    ticket: T-01-04
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T20:54:29
+    by: Claude
+    ticket: T-01-01
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T21:01:24
+    by: Akenzy
+    ticket: T-01-01
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T21:11:44
+    by: Claude
+    ticket: T-01-05
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T21:12:48
+    by: Claude
+    ticket: T-01-02
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T21:13:18
+    by: Claude
+    ticket: T-01-02
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T21:13:40
+    by: Claude
+    ticket: T-01-05
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T21:13:40
+    by: Akenzy
+    ticket: T-01-02
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T21:15:00
+    by: Akenzy
+    ticket: T-01-05
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T21:15:33
+    by: Claude
+    ticket: T-01-03
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T21:15:59
+    by: Claude
+    ticket: T-01-06
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T21:19:22
+    by: Claude
+    ticket: T-01-03
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T21:24:23
+    by: Akenzy
+    ticket: T-01-03
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T21:26:11
+    by: Claude
+    ticket: T-01-06
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T21:37:59
+    by: Akenzy
+    ticket: T-01-06
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T21:39:35
+    by: Claude
+    ticket: T-02-01
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T21:41:27
+    by: Claude
+    ticket: T-02-01
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T21:47:17
+    by: Akenzy
+    ticket: T-02-01
+  - gate: G4
+    action: passed
+    at: 2026-08-29T22:08:33
+    by: Akenzy
+    evidence: all 7 tickets done, all UoW checklists ticked
+  - gate: G5
+    action: passed
+    at: 2026-08-29T22:15:25
+    by: Akenzy
+    evidence: assumptions resolved, ADRs settled, graph valid

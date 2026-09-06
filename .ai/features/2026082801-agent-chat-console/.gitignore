@@ -1,0 +1,9 @@
+# machine-local write lock; never part of the plan
+.aidlc-state.lock
+
+# regenerated from the tickets by uow_graph.py --write; committing them means merge
+# conflicts in files nobody hand-edits. project_registry.py --scan re-derives from the
+# tickets, so a scan still reports correctly with these ignored.
+05-ticket-graph.md
+06-traceability.md
+registry.yaml

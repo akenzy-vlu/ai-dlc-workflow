@@ -20,6 +20,10 @@ export interface TicketProps {
   touches: string[];
   assumptions: string[];
   doneWhen: ChecklistItem[];
+  /** The `## Context` section body, verbatim. Null when the file has no such heading. */
+  context: string | null;
+  /** The `## Implementation notes` section body, verbatim. Null when there is none. */
+  implementationNotes: string | null;
   filePath: string;
   /** Non-null when the frontmatter could not be parsed. Shown, not swallowed. */
   parseError: string | null;
@@ -73,6 +77,12 @@ export class Ticket extends Entity<TicketId> {
   }
   get doneWhen(): readonly ChecklistItem[] {
     return this.props.doneWhen;
+  }
+  get context(): string | null {
+    return this.props.context;
+  }
+  get implementationNotes(): string | null {
+    return this.props.implementationNotes;
   }
   get filePath(): string {
     return this.props.filePath;

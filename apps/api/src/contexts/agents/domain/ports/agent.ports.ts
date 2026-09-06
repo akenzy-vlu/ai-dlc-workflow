@@ -16,6 +16,13 @@ export interface LaunchRequest {
   run: AgentRun;
   definition: AgentDefinition;
   prompt: string;
+  /**
+   * Continue this session instead of starting a fresh one.
+   *
+   * Absent is a normal launch. Present means the prompt is a reply, and the brief the
+   * agent already worked from stays where it is — in the conversation the CLI still holds.
+   */
+  resumeSessionId?: string;
   timeoutMs: number;
   onLine: (line: LogLine) => void;
   /** Structured events, when the CLI emits them. Silent for CLIs that print prose. */

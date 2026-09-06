@@ -8,6 +8,11 @@ import { UnitsOfWorkPanelView } from './units-of-work-panel.view';
 export function UnitsOfWorkPanel({ feature }: UnitsOfWorkPanelProps) {
   const [launchFor, setLaunchFor] = useState<Ticket | null>(null);
   const [openRunId, setOpenRunId] = useState<string | null>(null);
+  // An id, not the Ticket itself — accepting or rejecting from inside the drawer refetches
+  // the feature, and the drawer has to pick up that fresh copy rather than hold the one
+  // that was there when the row was clicked (AC-07: opening it changes nothing, but acting
+  // from it must be reflected immediately).
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
 
   const runs = agentRepository.useRuns({
     repositoryId: feature.repositoryId,
@@ -43,8 +48,10 @@ export function UnitsOfWorkPanel({ feature }: UnitsOfWorkPanelProps) {
       defaultOpenKeys={feature.unitsOfWork.filter((uow) => uow.status !== 'done').map((uow) => uow.id)}
       launchFor={launchFor}
       openRunId={openRunId}
+      openTicket={openTicketId ? (ticketsById.get(openTicketId) ?? null) : null}
       onLaunch={setLaunchFor}
       onOpenRun={setOpenRunId}
+      onOpenTicket={(ticket) => setOpenTicketId(ticket?.id ?? null)}
     />
   );
 }

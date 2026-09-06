@@ -7,3 +7,4 @@ export * from './verification.repository.impl';
 export * from './maintenance.repository.impl';
 export * from './preferences.repository.impl';
 export * from './skill.repository.impl';
+export * from './skill-file.repository.impl';

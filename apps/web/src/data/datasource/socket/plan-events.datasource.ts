@@ -1,6 +1,6 @@
-import type { AgentLogLine } from '@domain/entities';
+import type { AgentActivity, AgentLogLine } from '@domain/entities';
 import type { AgentRunStatus } from '@domain/enums';
-import { toAgentLogLine, toAgentRunStatus } from '../../mappers';
+import { toAgentActivity, toAgentLogLine, toAgentRunStatus } from '../../mappers';
 import { getSocket } from './socket-client';
 
 export interface PlanChangedEvent {
@@ -23,6 +23,13 @@ export interface AgentRunEvent {
   repositoryId: string;
   /** Null on a status change; a line on output. */
   line: AgentLogLine | null;
+  /**
+   * What the agent is doing right now, when the CLI reports it.
+   *
+   * Null both on an output line (activity travels on its own frames) and once the run has
+   * stopped — a thread reads this to move its "currently doing" line without a refetch.
+   */
+  activity: AgentActivity | null;
   at: string;
 }
 
@@ -60,12 +67,14 @@ export function subscribeToPlanEvents(handlers: PlanEventHandlers): () => void {
     slug: string;
     repositoryId: string;
     line: { at: string; stream: string; text: string } | null;
+    activity: { at: string; kind: string; tool?: string; detail?: string; text?: string } | null;
     at: string;
   }): void =>
     handlers.onAgentRun?.({
       ...payload,
       status: toAgentRunStatus(payload.status),
       line: payload.line ? toAgentLogLine(payload.line) : null,
+      activity: payload.activity ? toAgentActivity(payload.activity) : null,
     });
 
   connection.on('plan.changed', onPlanChanged);

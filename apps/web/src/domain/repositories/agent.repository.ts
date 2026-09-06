@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentRun, AgentRunDetail, LaunchAgentCommand } from '../entities';
+import type { AgentDefinition, AgentRun, AgentRunDetail, AgentThread, LaunchAgentCommand, ReplyToRunCommand } from '../entities';
 import type { FeatureRef } from '../value-objects';
 import type { CommandResult, QueryResult } from './query.types';
 
@@ -20,8 +20,12 @@ export interface AgentRepository {
   useRun(runId: string | null): QueryResult<AgentRunDetail>;
   /** The brief an agent would be handed. Worth reading before a launch. */
   useBriefing(ref: FeatureRef | null, ticketId: string | null): QueryResult<{ briefing: string }>;
+  /** A ticket's agent work as one conversation, oldest first. */
+  useThread(ref: FeatureRef | null, ticketId: string | null): QueryResult<AgentThread>;
 
   useLaunch(): CommandResult<FeatureRef & { ticketId: string } & LaunchAgentCommand, { runId: string }>;
+  /** Continues the conversation a finished run already had. */
+  useReply(): CommandResult<ReplyToRunCommand, { runId: string }>;
   /**
    * Launches an agent for every pickable ticket in the feature at once.
    *

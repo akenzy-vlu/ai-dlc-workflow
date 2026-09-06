@@ -113,6 +113,8 @@ export interface TicketModel {
   touches: string[];
   assumptions: string[];
   doneWhen: ChecklistItemModel[];
+  context: string | null;
+  implementationNotes: string | null;
   unmetDependencies: number;
   ready: boolean;
   onCriticalPath: boolean;

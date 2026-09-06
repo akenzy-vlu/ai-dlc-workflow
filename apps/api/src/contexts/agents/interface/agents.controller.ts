@@ -24,6 +24,15 @@ class LaunchReadyDto {
   @IsBoolean() acknowledged!: boolean;
 }
 
+class ReplyDto {
+  @IsString() @MinLength(1) @MaxLength(4000) message!: string;
+  /** Ignored behind an authenticating proxy; see LaunchAgentDto for why it is optional. */
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(80) repliedBy?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(180) timeoutMinutes?: number;
+  /** Same acknowledgement a launch requires — a reply spawns a CLI in a real checkout too. */
+  @IsBoolean() acknowledged!: boolean;
+}
+
 @Controller('api')
 export class AgentsController {
   constructor(
@@ -59,6 +68,26 @@ export class AgentsController {
   @Post('agent-runs/:id/cancel')
   async cancel(@Param('id') id: string) {
     return this.launcher.cancel(id);
+  }
+
+  /**
+   * Continues the conversation the run at `:id` already had.
+   *
+   * Lives on the run, not the ticket: a reply continues one specific session, and the run
+   * is what holds it. `thread`, below, is the ticket-level view that ties runs together.
+   */
+  @Post('agent-runs/:id/reply')
+  async reply(@Param('id') id: string, @Body() dto: ReplyDto, @Acting('repliedBy') acting: ActingIdentity) {
+    return this.launcher.reply({ runId: id, ...dto, repliedBy: acting.name });
+  }
+
+  @Get('features/:repositoryId/:slug/tickets/:ticketId/thread')
+  async thread(
+    @Param('repositoryId') repositoryId: string,
+    @Param('slug') slug: string,
+    @Param('ticketId') ticketId: string,
+  ) {
+    return this.launcher.thread(repositoryId, slug, ticketId);
   }
 
   @Get('features/:repositoryId/:slug/tickets/:ticketId/briefing')

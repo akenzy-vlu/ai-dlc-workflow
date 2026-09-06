@@ -36,10 +36,32 @@ export interface AgentTelemetry {
   numTurns: number | null;
   durationMs: number | null;
   toolCalls: number;
+  /**
+   * What the run spent, in tokens.
+   *
+   * Null throughout, never 0. Zero is a number a run reported; null is a run that reported
+   * nothing, and a UI that renders the two the same way tells someone a paid run was free.
+   * Only a CLI emitting stream-json reports these at all.
+   */
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
 }
 
 export function emptyTelemetry(): AgentTelemetry {
-  return { sessionId: null, model: null, costUsd: null, numTurns: null, durationMs: null, toolCalls: 0 };
+  return {
+    sessionId: null,
+    model: null,
+    costUsd: null,
+    numTurns: null,
+    durationMs: null,
+    toolCalls: 0,
+    inputTokens: null,
+    outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+  };
 }
 
 /** One line of a tool activity, for a table cell or a pill. */

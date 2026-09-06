@@ -7,3 +7,4 @@ export * from './verification.repository';
 export * from './maintenance.repository';
 export * from './preferences.repository';
 export * from './skill.repository';
+export * from './skill-file.repository';

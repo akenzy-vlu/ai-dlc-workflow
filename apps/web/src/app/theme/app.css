@@ -144,3 +144,15 @@ kbd {
 .kiln-row-muted > td {
   opacity: 0.55;
 }
+
+/* The dot beside a thread entry's "currently doing" line — a running agent, not a static
+   fact, and the only signal in the thread that says so without a page refresh. */
+@keyframes aidlc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

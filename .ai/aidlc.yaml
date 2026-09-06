@@ -1,0 +1,4 @@
+profile: none
+ruleset: 4
+# NestJS Clean Architecture + DDD on the API side, feature-sliced on the web side.
+layers: [domain, application, infrastructure, interface, presentation, test]

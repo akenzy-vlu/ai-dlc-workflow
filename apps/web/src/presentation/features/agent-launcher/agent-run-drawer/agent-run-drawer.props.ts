@@ -1,4 +1,6 @@
-import type { AgentLogLine, AgentRunDetail } from '@domain/entities';
+import type { ReactNode } from 'react';
+
+import type { AgentRunStatus } from '@domain/enums';
 
 export interface AgentRunDrawerProps {
   runId: string | null;
@@ -7,13 +9,18 @@ export interface AgentRunDrawerProps {
 
 export interface AgentRunDrawerViewProps {
   open: boolean;
-  run: AgentRunDetail | undefined;
-  lines: AgentLogLine[];
+  ticketId: string | null;
+  /** The latest status in the thread, or the opened run's own — whichever is known. */
+  status: AgentRunStatus | null;
+  agentLabel: string | null;
+  repositoryLabel: string | null;
+  slug: string | null;
+  cwd: string | null;
   cancelling: boolean;
-  follow: boolean;
-  bodyRef: React.RefObject<HTMLDivElement | null>;
-  onScroll: (event: React.UIEvent<HTMLDivElement>) => void;
-  onFollowAgain: () => void;
+  /** True when some run in this thread is still going. */
+  canCancel: boolean;
   onCancel: () => void;
   onClose: () => void;
+  /** The `AgentThread`, composed by the container so this view stays unaware of it. */
+  children: ReactNode;
 }

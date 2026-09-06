@@ -3,5 +3,7 @@ export * from './feature.model';
 export * from './insight.model';
 export * from './verification.model';
 export * from './agent.model';
+export * from './agent-thread.model';
 export * from './skill.model';
+export * from './skill-file.model';
 export * from './directory.model';

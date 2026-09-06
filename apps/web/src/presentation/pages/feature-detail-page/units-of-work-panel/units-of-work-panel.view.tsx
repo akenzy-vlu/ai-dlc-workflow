@@ -9,6 +9,7 @@ import { formatHours } from '@domain/value-objects';
 import { TicketStatusTag } from '@presentation/components/ticket-status-tag';
 import { AgentRunDrawer, LaunchAgentModal } from '@presentation/features/agent-launcher';
 import { TicketActions } from '@presentation/features/ticket-actions';
+import { TicketDetailDrawer } from '@presentation/features/ticket-detail-drawer';
 import type { UnitsOfWorkPanelViewProps } from './units-of-work-panel.props';
 
 /**
@@ -28,8 +29,10 @@ export function UnitsOfWorkPanelView({
   defaultOpenKeys,
   launchFor,
   openRunId,
+  openTicket,
   onLaunch,
   onOpenRun,
+  onOpenTicket,
 }: UnitsOfWorkPanelViewProps) {
   const columns: ColumnsType<Ticket> = [
     {
@@ -122,49 +125,51 @@ export function UnitsOfWorkPanelView({
       title: 'Agent',
       key: 'agent',
       width: 110,
+      // The row itself opens the ticket-detail drawer on click; every cell below is its
+      // own click target with its own meaning, so each stops the click from also bubbling
+      // up into the row.
       render: (_, row) => {
         const run = runFor(row.id);
         const working = run !== undefined && !TERMINAL_RUN_STATUSES.includes(run.status);
-        if (working && run) {
-          return (
-            <Tag
-              style={{
-                marginInlineEnd: 0,
-                cursor: 'pointer',
-                background: token.bgRaised,
-                borderColor: token.borderStrong,
-                color: token.textSecondary,
-              }}
-              onClick={() => onOpenRun(run.id)}
-            >
-              working
-            </Tag>
-          );
-        }
-        if (run) {
-          return (
-            <Button size="small" type="link" style={{ padding: 0, fontSize: 11.5 }} onClick={() => onOpenRun(run.id)}>
-              {run.status}
-            </Button>
-          );
-        }
-        if (row.status === 'done') return <span style={{ color: token.textMuted }}>—</span>;
         return (
-          <Tooltip
-            title={
-              row.ready
-                ? 'Hand this ticket to an agent CLI'
-                : 'The controller will refuse to start this — a dependency is not done'
-            }
-          >
-            <Button
-              size="small"
-              type="text"
-              icon={<RobotOutlined />}
-              disabled={!row.ready}
-              onClick={() => onLaunch(row)}
-            />
-          </Tooltip>
+          <div onClick={(e) => e.stopPropagation()}>
+            {working && run ? (
+              <Tag
+                style={{
+                  marginInlineEnd: 0,
+                  cursor: 'pointer',
+                  background: token.bgRaised,
+                  borderColor: token.borderStrong,
+                  color: token.textSecondary,
+                }}
+                onClick={() => onOpenRun(run.id)}
+              >
+                working
+              </Tag>
+            ) : run ? (
+              <Button size="small" type="link" style={{ padding: 0, fontSize: 11.5 }} onClick={() => onOpenRun(run.id)}>
+                {run.status}
+              </Button>
+            ) : row.status === 'done' ? (
+              <span style={{ color: token.textMuted }}>—</span>
+            ) : (
+              <Tooltip
+                title={
+                  row.ready
+                    ? 'Hand this ticket to an agent CLI'
+                    : 'The controller will refuse to start this — a dependency is not done'
+                }
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<RobotOutlined />}
+                  disabled={!row.ready}
+                  onClick={() => onLaunch(row)}
+                />
+              </Tooltip>
+            )}
+          </div>
         );
       },
     },
@@ -173,15 +178,17 @@ export function UnitsOfWorkPanelView({
       key: 'actions',
       width: 200,
       render: (_, row) => (
-        <TicketActions
-          compact
-          repositoryId={repositoryId}
-          slug={slug}
-          ticketId={row.id}
-          status={row.status}
-          untickedCount={row.doneWhen.filter((item) => !item.done).length}
-          lastSubmittedBy={row.lastSubmittedBy}
-        />
+        <div onClick={(e) => e.stopPropagation()}>
+          <TicketActions
+            compact
+            repositoryId={repositoryId}
+            slug={slug}
+            ticketId={row.id}
+            status={row.status}
+            untickedCount={row.doneWhen.filter((item) => !item.done).length}
+            lastSubmittedBy={row.lastSubmittedBy}
+          />
+        </div>
       ),
     },
   ];
@@ -296,6 +303,10 @@ export function UnitsOfWorkPanelView({
                   dataSource={ticketsOf(uow)}
                   columns={columns}
                   scroll={{ x: 900 }}
+                  onRow={(row) => ({
+                    onClick: () => onOpenTicket(row),
+                    style: { cursor: 'pointer' },
+                  })}
                 />
               </Space>
             ),
@@ -316,6 +327,13 @@ export function UnitsOfWorkPanelView({
       ) : null}
 
       <AgentRunDrawer runId={openRunId} onClose={() => onOpenRun(null)} />
+
+      <TicketDetailDrawer
+        repositoryId={repositoryId}
+        slug={slug}
+        ticket={openTicket}
+        onClose={() => onOpenTicket(null)}
+      />
     </>
   );
 }

@@ -122,6 +122,8 @@ export class FilesystemConstructionPlanReader implements ConstructionPlanReaderP
             touches: asList(parsed.data['touches']),
             assumptions: asList(parsed.data['assumptions']),
             doneWhen: checklistState(ticketText).items,
+            context: sectionBody(ticketText, 'Context'),
+            implementationNotes: sectionBody(ticketText, 'Implementation notes'),
             filePath,
             parseError: parsed.error,
           }),

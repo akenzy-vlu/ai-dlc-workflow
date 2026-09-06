@@ -1,0 +1,83 @@
+# Managed by scripts/aidlc.py — do not edit by hand.
+# Editing this file to skip a gate defeats the point of having one.
+feature: ticket-detail-drawer
+slug: 2026082901-ticket-detail-drawer
+profile: none
+created: 2026-08-29T12:20:38
+current_gate: G5
+history:
+  - gate: G0
+    action: passed
+    at: 2026-08-29T12:21:49
+    by: Akenzy
+    evidence: architecture map verified by Akenzy; 00-intent.md complete
+  - gate: G1
+    action: passed
+    at: 2026-08-29T12:22:21
+    by: Akenzy
+    evidence: 3 assumptions, none blocking-and-pending; 7 acceptance criteria defined
+  - gate: G2
+    action: passed
+    at: 2026-08-29T12:22:21
+    by: Akenzy
+    evidence: 1 ADR(s) recorded
+  - gate: G3
+    action: passed
+    at: 2026-08-29T12:23:14
+    by: Akenzy
+    evidence: graph valid - 1 UoW, 3 tickets, no cycles
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T12:23:26
+    by: Claude (via Akenzy)
+    ticket: T-01-01
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T12:25:05
+    by: Claude (via Akenzy)
+    ticket: T-01-01
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T12:30:26
+    by: Akenzy
+    ticket: T-01-01
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T12:30:33
+    by: Claude (via Akenzy)
+    ticket: T-01-02
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T12:31:08
+    by: Claude (via Akenzy)
+    ticket: T-01-02
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T12:32:25
+    by: Akenzy
+    ticket: T-01-02
+  - gate: G4
+    action: ticket in_progress
+    at: 2026-08-29T12:32:26
+    by: Claude (via Akenzy)
+    ticket: T-01-03
+  - gate: G4
+    action: ticket review
+    at: 2026-08-29T12:41:29
+    by: Claude (via Akenzy)
+    ticket: T-01-03
+  - gate: G4
+    action: ticket done
+    at: 2026-08-29T12:45:26
+    by: Akenzy
+    ticket: T-01-03
+  - gate: G4
+    action: passed
+    at: 2026-08-29T12:48:14
+    by: Akenzy
+    evidence: all 3 tickets done, all UoW checklists ticked
+  - gate: G5
+    action: passed
+    at: 2026-08-29T20:33:57
+    by: Akenzy
+    evidence: assumptions resolved, ADRs settled, graph valid

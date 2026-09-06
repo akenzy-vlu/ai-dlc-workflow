@@ -23,6 +23,7 @@ export const API_TAGS = [
   'Runner',
   'Tooling',
   'Skill',
+  'SkillFile',
 ] as const;
 
 /**

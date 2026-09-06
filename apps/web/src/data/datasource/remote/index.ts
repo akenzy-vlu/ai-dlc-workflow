@@ -5,3 +5,4 @@ export * from './insight.endpoints';
 export * from './agent.endpoints';
 export * from './verification.endpoints';
 export * from './skill.endpoints';
+export * from './skill-file.endpoints';

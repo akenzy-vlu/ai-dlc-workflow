@@ -1,7 +1,7 @@
-import type { AgentDefinition, AgentRun, AgentRunDetail, LaunchAgentCommand } from '@domain/entities';
+import type { AgentDefinition, AgentRun, AgentRunDetail, AgentThread, LaunchAgentCommand, ReplyToRunCommand } from '@domain/entities';
 import type { FeatureRef } from '@domain/value-objects';
-import type { AgentDefinitionModel, AgentRunDetailModel, AgentRunModel } from '../../models';
-import { toAgentDefinition, toAgentRun, toAgentRunDetail } from '../../mappers';
+import type { AgentDefinitionModel, AgentRunDetailModel, AgentRunModel, AgentThreadModel } from '../../models';
+import { toAgentDefinition, toAgentRun, toAgentRunDetail, toAgentThread } from '../../mappers';
 import { consoleApi } from './api';
 
 const path = (ref: FeatureRef): string =>
@@ -39,6 +39,21 @@ export const agentEndpoints = consoleApi.injectEndpoints({
 
     getBriefing: build.query<{ briefing: string }, FeatureRef & { ticketId: string }>({
       query: ({ ticketId, ...ref }) => `${path(ref)}/tickets/${ticketId}/briefing`,
+    }),
+
+    getAgentThread: build.query<AgentThread, FeatureRef & { ticketId: string }>({
+      query: ({ ticketId, ...ref }) => `${path(ref)}/tickets/${ticketId}/thread`,
+      transformResponse: (model: AgentThreadModel) => toAgentThread(model),
+      providesTags: (_result, _error, arg) => [{ type: 'AgentRun', id: arg.ticketId }],
+    }),
+
+    replyToRun: build.mutation<{ runId: string }, ReplyToRunCommand>({
+      query: ({ runId, ...body }) => ({ url: `/agent-runs/${runId}/reply`, method: 'POST', body }),
+      // The bare type, matching `cancelAgentRun` below: the thread is tagged by ticketId,
+      // not by the runId a reply is posted to, and only invalidating the untyped 'AgentRun'
+      // tag reaches every id under it — a reply changes nothing else the console shows, so
+      // this stays narrower than launch's invalidation, which moves the ticket itself.
+      invalidatesTags: (_result, _error, arg) => ['AgentRun', { type: 'AgentRun', id: arg.runId }],
     }),
 
     launchAgent: build.mutation<{ runId: string }, FeatureRef & { ticketId: string } & LaunchAgentCommand>({
@@ -92,6 +107,8 @@ export const {
   useListAgentRunsQuery,
   useGetAgentRunQuery,
   useGetBriefingQuery,
+  useGetAgentThreadQuery,
+  useReplyToRunMutation,
   useLaunchAgentMutation,
   useLaunchReadyTicketsMutation,
   useCancelAgentRunMutation,

@@ -1,6 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
-import type { AgentLogLine } from '@domain/entities';
+import type { AgentActivity, AgentLogLine } from '@domain/entities';
 import type { SetupStepId } from '@domain/enums';
 
 export interface SetupLogLine {
@@ -21,12 +21,24 @@ export interface SetupLogLine {
 interface StreamState {
   /** Lines received since this session subscribed, per run id. */
   agentLog: Record<string, AgentLogLine[]>;
+  /**
+   * What each run is doing right now, per run id — undefined means "nothing received
+   * yet, trust the fetched snapshot"; null means the socket itself said there is nothing
+   * current, which a fetched snapshot can go stale on the moment a run finishes.
+   */
+  agentActivity: Record<string, AgentActivity | null>;
   setupLog: SetupLogLine[];
   setupSteps: Partial<Record<SetupStepId, 'running' | 'done' | 'failed'>>;
   gateSweep: { done: number; total: number } | null;
 }
 
-const initialState: StreamState = { agentLog: {}, setupLog: [], setupSteps: {}, gateSweep: null };
+const initialState: StreamState = {
+  agentLog: {},
+  agentActivity: {},
+  setupLog: [],
+  setupSteps: {},
+  gateSweep: null,
+};
 
 /** A very long run should not grow the store without bound; the tail is what matters. */
 const MAX_LINES = 5_000;
@@ -43,6 +55,17 @@ export const streamSlice = createSlice({
     },
     agentLogCleared(state, action: PayloadAction<string>) {
       delete state.agentLog[action.payload];
+    },
+    /**
+     * The activity a status/lifecycle frame carried — null included, deliberately. A run
+     * that just finished reports activity: null, and that null is what makes the
+     * "currently doing" line disappear without a refetch.
+     */
+    agentActivityReceived(state, action: PayloadAction<{ runId: string; activity: AgentActivity | null }>) {
+      state.agentActivity[action.payload.runId] = action.payload.activity;
+    },
+    agentActivityCleared(state, action: PayloadAction<string>) {
+      delete state.agentActivity[action.payload];
     },
     setupProgressReceived(
       state,
@@ -66,6 +89,8 @@ export const streamSlice = createSlice({
 export const {
   agentLineReceived,
   agentLogCleared,
+  agentActivityReceived,
+  agentActivityCleared,
   setupProgressReceived,
   setupLogCleared,
   gateSweepProgress,
