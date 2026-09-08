@@ -19,6 +19,10 @@ dist/
 .env
 .env.local
 
+# Per-machine allowlist for the ai-dlc plugin's hooks. The hooks fall back to their built-in
+# defaults when it is absent, so this never has to be committed to be correct.
+.claude/aidlc-hooks.json
+
 # Editors
 .vscode/
 .idea/

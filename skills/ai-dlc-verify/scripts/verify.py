@@ -35,8 +35,8 @@ import subprocess
 import sys
 import tempfile
 
-__version__ = "0.1.0"
-RULESET = 4          # tracks ai-dlc-core's uow_graph.RULESET; bump together
+__version__ = "0.2.0"
+RULESET = 5          # tracks ai-dlc-core's uow_graph.RULESET; bump together
 
 SPEC_FILE = "07-verification.md"
 EVIDENCE_DOC = "08-evidence.md"

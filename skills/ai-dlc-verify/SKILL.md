@@ -48,7 +48,7 @@ verify.py <feature-dir>                       # run; screenshots to evidence/
 verify.py <feature-dir> --write               # run, then generate 08-evidence.md
 verify.py <feature-dir> --env local           # restrict to one environment
 verify.py <feature-dir> --manual-login        # headed; you log in, the session is saved
-verify.py --version                           # aidlc_verify 0.1.0 (ruleset 4)
+verify.py --version                           # aidlc_verify 0.2.0 (ruleset 5)
 evidence_check.py <feature-dir>               # validate the claims; exit 1 on a lie
 ```
 

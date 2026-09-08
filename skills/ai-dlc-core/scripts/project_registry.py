@@ -52,6 +52,9 @@ CREATE TABLE uow (
 CREATE TABLE ticket (
   repo TEXT, feature TEXT, id TEXT, uow TEXT, title TEXT, layer TEXT, type TEXT,
   estimate_hours REAL, status TEXT, depends_on TEXT, unmet_deps INT,
+  -- folded from the trail by flow.py; NULL means unmeasurable, never zero
+  cycle_hours REAL, review_hours REAL, blocked_hours REAL, aging_hours REAL,
+  block_reason TEXT,
   PRIMARY KEY (repo, feature, id)
 );
 CREATE TABLE assumption (
@@ -189,13 +192,57 @@ def git_head(repo):
 # --------------------------------------------------------------------------- #
 
 
-def load_uow_graph():
+def load_sibling(name):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
     sys.dont_write_bytecode = True
-    import uow_graph
-    return uow_graph
+    try:
+        return __import__(name)
+    except ImportError:
+        return None
+
+
+def load_uow_graph():
+    return load_sibling("uow_graph")
+
+
+def read_trail(feature_dir):
+    """The raw trail. One bad line costs one event, never the file."""
+    entries = []
+    for line in read_text(os.path.join(feature_dir, "history.jsonl")).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+    return entries
+
+
+def load_flow(feature_dir, tickets, G):
+    """
+    Per-ticket flow, imported from `flow.py` rather than recomputed here.
+
+    Two implementations of one number are two numbers, and the one in the portfolio report
+    would be the one nobody notices has drifted.
+    """
+    fl = load_sibling("flow")
+    if fl is None:
+        return {}, {}
+    entries = read_trail(feature_dir)
+    estimates = {t: G.parse_estimate(m.get("estimate")) for t, m in tickets.items()}
+    rows = {r["ticket"]: r for r in fl.feature_rows(entries, estimates)}
+    reasons = {}
+    for entry in entries:                       # why a blocked ticket is blocked
+        if entry.get("action") == "ticket blocked" and entry.get("ticket"):
+            reasons[entry["ticket"]] = entry.get("reason", "")
+        elif entry.get("action") == "ticket unblocked" and entry.get("ticket"):
+            reasons.pop(entry["ticket"], None)
+    return rows, reasons
 
 
 def build_snapshot(feature_dir, repo_path, label):
@@ -216,6 +263,7 @@ def build_snapshot(feature_dir, repo_path, label):
         return G.as_list(v)
 
     status_of = {t: m.get("status", "todo") for t, m in tickets.items()}
+    flow_rows, block_reasons = load_flow(feature_dir, tickets, G)
     return {
         "schema": 1,
         "source": {"host": "collector", "repo_path": os.path.abspath(repo_path),
@@ -238,7 +286,9 @@ def build_snapshot(feature_dir, repo_path, label):
                     "unmet_deps": sum(1 for d in lst(t.get("depends_on"))
                                       if status_of.get(d) != "done"),
                     "verifies": lst(t.get("verifies")),
-                    "touches": lst(t.get("touches"))}
+                    "touches": lst(t.get("touches")),
+                    "flow": flow_rows.get(t.get("id"), {}),
+                    "block_reason": block_reasons.get(t.get("id"), "")}
                    for t in sorted(tickets.values(), key=lambda x: x.get("id", ""))],
         "assumption": parse_assumptions(os.path.join(feature_dir, "01-assumptions.md")),
         "history": [],          # the state file's own trail; git history is the record here
@@ -335,11 +385,16 @@ def ingest_snapshot(conn, snap):
             u.get("risk", ""), ",".join(u.get("depends_on", [])),
         ))
     for t in tickets:
-        conn.execute("INSERT OR REPLACE INTO ticket VALUES (?,?,?,?,?,?,?,?,?,?,?)", (
+        # A snapshot shipped by an older tool carries no `flow`. It ingests as NULLs
+        # rather than being refused — the registry's job is to accept what repos send.
+        f = t.get("flow") or {}
+        conn.execute("INSERT OR REPLACE INTO ticket VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
             repo, slug, t.get("id"), t.get("uow", ""), t.get("title", ""),
             t.get("layer", ""), t.get("type", ""), hours(t.get("estimate")),
             t.get("status", "todo"), ",".join(t.get("depends_on", [])),
             t.get("unmet_deps", 0),
+            f.get("cycle_hours"), f.get("review_hours"), f.get("blocked_hours"),
+            f.get("aging_hours"), t.get("block_reason", ""),
         ))
     for a in assumptions:
         conn.execute("INSERT OR REPLACE INTO assumption VALUES (?,?,?,?,?,?,?)", (
@@ -373,11 +428,17 @@ def report(conn):
             print("(none)")
             return
         cols = [d[0] for d in conn.execute(sql).description]
-        widths = [max(len(str(c)), *(len(str(r[i])) for r in rows)) for i, c in enumerate(cols)]
+        render(cols, rows)
+
+    def render(cols, rows):
+        # `—`, never `None` and never `0`: an unmeasurable span that prints as a number
+        # is the one mistake that makes every average below it wrong and confident.
+        cells = [["—" if v is None else str(v) for v in r] for r in rows]
+        widths = [max(len(str(c)), *(len(r[i]) for r in cells)) for i, c in enumerate(cols)]
         print("  ".join(c.ljust(widths[i]) for i, c in enumerate(cols)))
         print("  ".join("-" * w for w in widths))
-        for r in rows:
-            print("  ".join(str(v).ljust(widths[i]) for i, v in enumerate(r)))
+        for r in cells:
+            print("  ".join(v.ljust(widths[i]) for i, v in enumerate(r)))
 
     show("Portfolio", """
         SELECT repo, slug AS feature, gate,
@@ -411,6 +472,41 @@ def report(conn):
         FROM uow WHERE risk = 'high' AND status != 'done'
         ORDER BY repo, feature, id
     """, "High-risk slices not yet finished.")
+
+    fl = load_sibling("flow")
+    print("\n## Flow")
+    print("_Folded from the trail — nobody typed any of it. Medians, not means: one ticket "
+          "left open over a weekend should not redefine a team's cycle time. `measured` is "
+          "the sample size — an unpairable span is unknown, never zero._")
+    flow_rows = []
+    for (repo,) in conn.execute("SELECT DISTINCT repo FROM ticket ORDER BY repo"):
+        vals = conn.execute(
+            "SELECT cycle_hours, review_hours, estimate_hours FROM ticket WHERE repo = ?",
+            (repo,)).fetchall()
+        cycles = [v[0] for v in vals if v[0] is not None]
+        reviews = [v[1] for v in vals if v[1] is not None]
+        paired = [(v[0], v[2]) for v in vals if v[0] is not None and v[2]]
+        median = fl.median if fl else (lambda xs: round(sorted(xs)[len(xs) // 2], 2) if xs else None)
+        flow_rows.append((
+            repo, f"{len(cycles)}/{len(vals)}", median(cycles), median(reviews),
+            round(sum(e for _, e in paired), 1) or None,
+            round(sum(c for c, _ in paired), 1) or None,
+            round(sum(c - e for c, e in paired), 1) if paired else None,
+        ))
+    if flow_rows:
+        render(["repo", "measured", "median_cycle_h", "median_review_h",
+                "estimated_h", "actual_h", "bias_h"], flow_rows)
+    else:
+        print("(none)")
+
+    show("Stuck", """
+        SELECT t.repo, t.feature, t.id, t.status,
+               ROUND(COALESCE(t.aging_hours, t.blocked_hours), 1) AS waiting_h,
+               substr(COALESCE(NULLIF(t.block_reason, ''), t.title), 1, 44) AS why
+        FROM ticket t
+        WHERE t.status = 'blocked' OR (t.status = 'in_progress' AND t.aging_hours > 48)
+        ORDER BY waiting_h DESC
+    """, "Blocked, or in progress for more than 48h. The cross-repo standup list.")
 
     show("Approval trail (append-only, survives a lost laptop)", """
         SELECT repo, feature, at, action, actor,

@@ -143,14 +143,31 @@ Work one UoW at a time, following wave order inside it.
 ```bash
 aidlc ready                          # dependency-satisfied tickets
 aidlc start  T-01-01 --by <who>      # → in_progress
-aidlc submit T-01-01 --by <who>      # → review, after ticking the done-when boxes
-aidlc accept T-01-01 --by <human>    # → done
+aidlc block  T-01-01 --by <who> --reason "waiting on the upstream contract"
+aidlc unblock T-01-01 --by <who>     # back to whatever the block interrupted
+aidlc submit T-01-01 --by <who>      # runs the repo's verification, then → review
+aidlc accept T-01-01 --by <human>    # → done; refused if <human> is who submitted it
+aidlc evidence T-01-01               # what ran, its exit code, and the tail if it failed
 ```
 
-An implementer cannot accept its own work. A ticket in `review` keeps its dependents
-blocked, so review lag surfaces as stalled parallelism rather than as invisible debt.
-Working solo, `aidlc done --no-review` still works and records the bypass in the audit
-trail.
+When the repo configures an `evidence:` block, `submit` executes the ticket's tests and
+appends the result to the trail before deciding: a non-zero exit refuses the transition,
+and the failing run is recorded either way, because that run is the defect report. Without
+that block nothing is executed and this is the workflow it always was.
+
+Blocking is not a failure state and does not ask for the done-when boxes. It exists so the
+answer to "why has nothing moved since Tuesday" is on the trail rather than in someone's
+memory.
+
+An implementer cannot accept its own work — `accept` looks up who submitted the ticket and
+refuses when it is the same actor, comparing normalised names so that case and spacing do
+not launder one person into two. It is a guard against the locally plausible shortcut, not
+against forgery: typing a colleague's name still works, and still shows up in the trail as
+having happened.
+
+A ticket in `review` keeps its dependents blocked, so review lag surfaces as stalled
+parallelism rather than as invisible debt. Working solo, `aidlc done --no-review` still
+works and records the bypass in the audit trail.
 
 Check write-conflict hazards before running agents in parallel. Waves are topological
 levels, not a schedule: two tickets in different waves with no dependency path between them
@@ -169,6 +186,12 @@ plan.
 Fold decisions made during construction back into `03-logical-design.md` as ADRs. Mark
 every assumption with what actually turned out to be true. Run the profile's
 definition-of-done checklist, or the tickets' own if there is no profile.
+
+Run `aidlc flow` before closing. Cycle time, review lag and blocked time come out of the
+trail with nothing to fill in, and the estimate bias is the one number that makes the next
+feature's estimates better than this one's guesses. Fold it into how you size the next
+plan — that, and the closed assumption register, are the only parts of this process that
+compound.
 
 **Gate G5** — no assumption left pending, no ADR left proposed, graph still validating.
 
