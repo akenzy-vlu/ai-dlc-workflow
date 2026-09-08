@@ -34,7 +34,9 @@ skills/ai-dlc-core/           stack-agnostic feature-planning workflow
     ├── aidlc.py               controller: gate state, ticket review, snapshot
     ├── uow_graph.py           graph validator/generator, write-conflict hazards, ruleset pin
     ├── project_registry.py    cross-repo read model: --scan / --ingest / --report
-    └── discover_generic.py    read-only repo inventory, any stack
+    ├── discover_generic.py    read-only repo inventory, any stack
+    ├── evidence.py            runs one verification command, reports what happened
+    └── flow.py                folds history.jsonl into cycle/lead time — pure functions
 
 skills/ai-dlc-verify/        browser verification for G4 — the same demo script, screenshotted
 ├── SKILL.md
@@ -94,42 +96,6 @@ package.json                 pnpm workspace root: dev / build / typecheck / test
 docker-compose.yml           api + web, with `prod` and `dev` profiles selecting the web
 .env.example                 compose config; AIDLC_WORKSPACE is the one required value
 ```
-skills/ai-dlc-core/                  stack-agnostic feature-planning workflow
-├── SKILL.md
-├── references/
-│   ├── methodology.md        what each phase does, why each gate exists
-│   ├── templates.md          artifact/frontmatter shapes — source of truth for schema
-│   ├── discovery-protocol.md discoverable-vs-undiscoverable framing for Phase 0
-│   ├── sync.md                how a target repo's .ai/ reaches a central report
-│   └── profile-contract.md   the interface a stack profile must implement
-└── scripts/
-    ├── aidlc.py               controller: gate state, ticket review, snapshot
-    ├── uow_graph.py           graph validator/generator, write-conflict hazards, ruleset pin
-    ├── project_registry.py    cross-repo read model: --scan / --ingest / --report
-    └── discover_generic.py    read-only repo inventory, any stack
-
-skills/ai-dlc-verify/               browser verification for G4 — the same demo script, screenshotted
-├── SKILL.md
-├── references/
-│   ├── verification-protocol.md  the three rungs; discoverable vs undiscoverable; pass rules
-│   ├── config-schema.md      every key of the `verify:` block, and .ai/credentials.env
-│   ├── login-recipes.md      none / form / clerk-hosted / storage-state, and their failures
-│   └── templates.md          07-verification.md, the uow.md block, 08-evidence.md, PR draft
-└── scripts/
-    ├── verify.py             ladder resolution, run orchestration, generated artifacts
-    ├── evidence_check.py     validates that a ticked checkbox is supported by run.json
-    └── runner/run.py         the only file with a dependency: Playwright, driven by verify.py
-
-examples/profile-flutter/    EXAMPLE stack profile — reference impl of the contract below,
-├── SKILL.md                       for one specific (fictional/sample) Flutter monorepo,
-├── references/                    not a profile shipped for real use
-│   └── flutter-rules.md      layer boundaries, BLoC shape, reuse inventory, concrete DoD
-└── scripts/
-    └── discover_repo.py      profile-specific inventory (sample_ui_kit, segmentOf() routes, ...)
-
-PILOT-RUNBOOK.md              end-to-end dry run of both packages against a real repo — read first
-README.md                     one-line pointer from flutter-rules.md to the profile contract
-```
 
 `ai-dlc-core` implements **AI-DLC** (Inception → Construction → Operations): a feature moves
 through six gates (`G0`…`G5`), and `scripts/aidlc.py` refuses to advance a gate or unlock
@@ -146,7 +112,8 @@ about Flutter or any other framework; the layer vocabulary is the only stack-spe
 reads, and it comes from `.ai/aidlc.yaml` in the *target* repo (not from here).
 
 `ai-dlc-verify` is a **companion package to core, not a profile**: it is stack-agnostic, it
-installs globally like core, and it is the only thing in the repo that opens a browser. It
+is `scope: project` like a profile (see below), and it is the only thing in the repo that
+opens a browser. It
 supplies the verification half of G4 — the same Demo script core already requires, driven in a
 browser and screenshotted — and everything project-specific about it lives in the `verify:`
 block of the *target* repo's `.ai/aidlc.yaml`, never here. It hooks into core through exactly
@@ -242,7 +209,7 @@ Stdlib-only Python 3, no build — but this is the one thing outside `apps/` wit
 because a hook that denies can stop legitimate work:
 
 ```bash
-pnpm hooks:test          # 39 cases, run from the repo root
+pnpm hooks:test          # 54 cases, run from the repo root
 python3 -m unittest discover -s plugin/ai-dlc/hooks -p 'test_*.py' -v    # the same, verbose
 
 # Drive a hook by hand, exactly as the harness does — JSON on stdin, decision on stdout
@@ -399,6 +366,10 @@ Concretely:
   worse than an absent one. Detection is heuristic, so `.claude/aidlc-hooks.json` carries
   `allow_paths` / `allow_patterns` / `disabled_rules`, and a false positive is fixed there
   rather than by disabling the plugin.
+  A third property is newer and just as load-bearing: **every rule dispatches on the program
+  a command invokes**, so any wrapper that renames it silently disables the rule.
+  `rules.head_of` therefore strips `rtk` alongside `sudo`/`env`/`command` and resolves the
+  subcommand to the binary whose rules apply — see "Shell output: `rtk`" below.
 - **`uow_graph.py`** is the thing `aidlc.py` shells out to (via `run_uow_graph`, a
   subprocess call resolved relative to `aidlc.py`'s own directory — both scripts must stay
   siblings inside `skills/ai-dlc-core/scripts/`) for G3 and G5 checks, and is also runnable
@@ -433,6 +404,38 @@ Concretely:
   guess a layer convention from filenames, they cannot tell a live convention from a legacy
   one. A profile's own `discover_repo.py` always beats the generic fallback when one exists —
   the fallback is for piloting on a repo with no profile yet.
+
+### Shell output: `rtk`
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy: `rtk grep`, `rtk read`,
+`rtk tree`, `rtk git` and `rtk test` return the same information in a fraction of the context.
+The skills and the five agents all recommend it for reading a repo, and all of them mark it
+**optional** — when `rtk` is not on `PATH`, the native command runs and nothing else changes.
+It is a convention, never a dependency: no script in this repo shells out to `rtk`, and none
+may start.
+
+Two consequences bind changes here.
+
+**A verdict is never read through a filter.** `aidlc check`, `aidlc status`, `uowg`,
+`verify.py --doctor` and `evidence_check.py` print *why* something was refused, and that reason
+is the thing the caller acts on. A condensed "G3 failed" that drops which AC is uncovered turns
+a machine-checkable precondition back into the prose this project exists to replace. Every
+`SKILL.md` and agent file states this exception in its own terms; keep it stated when editing
+them, and keep it matched to what that agent actually measures — the test-runner's version is
+the sharpest, because a filtered run cannot tell "this AC failed" from "no test covers this AC
+at all".
+
+**The hooks have to see through it.** On a machine with rtk installed, its own PreToolUse hook
+*rewrites* commands — `git push` becomes `rtk git push` without anyone choosing it — so a
+plugin that dispatched on the literal first token would stop policing exactly the commands it
+exists to catch. `RTK_WRAPPERS` (`proxy`, `run`, `err`, `test`, `summary`) forward their
+remaining argv to another program; `RTK_ALIASES` map a subcommand to the binary whose rules
+apply (`rtk read` is policed as `cat`); a subcommand in neither is rtk's own (`rtk gain`) and
+runs nothing further. `rtk run -c '<command>'` hides a command inside a single argv word, so
+`segments()` scans that string *as well as* the segment carrying it, to `RTK_NEST_CEILING`
+levels — bounded because a hook the user is waiting on must terminate. Adding a wrapper means
+adding it to one of those tables plus a test both ways: that it catches what it should, and
+that the neighbouring rtk-native command still runs.
 
 ### The verification ladder (`ai-dlc-verify`)
 

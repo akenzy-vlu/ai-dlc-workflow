@@ -17,6 +17,18 @@ those is written Given/When/Then in `02-requirements.md`. Turn each into a test 
 name a reviewer can match back to the criterion — the traceability report is generated
 from these ids, so a test that covers AC-03 should be findable by searching for AC-03.
 
+## Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy that returns the same information in a
+fraction of the context. It is **optional**: when it is not on `PATH`, run the native
+command and nothing about this job changes.
+
+`rtk test` (and its `rtk jest` / `rtk vitest` / `rtk pytest` specialisations) shows the
+failures without the passing noise, which is what you iterate against while writing a test.
+
+Before you claim an AC is covered, confirm the run natively: `rtk test` reports failures,
+and "no failures shown" is not the same evidence as "this test ran and passed".
+
 ## Rules
 
 - Follow the repo's existing test conventions — framework, layout, naming. Match what is

@@ -43,6 +43,21 @@ nothing.
   a hash used for passwords that is not a password hash, a comparison of secrets with `==`.
 - **Dependencies** — a dependency added by this ticket that the plan never mentioned.
 
+## Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy that returns the same information in a
+fraction of the context. It is **optional**: when it is not on `PATH`, run the native
+command and nothing about this job changes.
+
+Use it to *navigate*: `rtk grep` for a sink, `rtk find` for the files a ticket declared in
+`touches:`.
+
+**Read every diff and every file natively, in full.** `rtk diff` is condensed by design and
+a security review is exactly the reading where the dropped line matters — the missing
+check, the widened scope, the argument that reaches a query unquoted. A vulnerability you
+did not see because a filter removed it still ships. If context is tight, review fewer
+files completely rather than more files in summary.
+
 ## The rules that are not negotiable
 
 - **Never run `aidlc accept` or `aidlc done`.** `aidlc.py` already refuses an accept by the

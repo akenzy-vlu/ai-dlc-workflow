@@ -19,6 +19,14 @@ Everything under `apps/` is the built and tested half: a pnpm workspace holding 
   reads. It resolves at runtime to one of three rungs and only the third can block a gate, so
   a repo with no login, no staging environment, or no credentials on this machine is not
   blocked by having it installed.
+- **`plugin/ai-dlc/`** — a Claude Code **plugin**: the agent-facing half. Five gate-aware
+  subagents, each defined as much by the one move it refuses as by what it does — an
+  implementer that never accepts its own work, an explorer that never signs its own discovery
+  draft, a reviewer that only ever rejects — plus two PreToolUse hooks that turn rules stated
+  in prose into refusals: no destructive commands, no hand-edits of the controller's state or
+  its generated files, no credentials in the transcript, the repo or a push. Installed with
+  `/plugin`, not by copying. It is the only thing outside `apps/` with a test suite
+  (`pnpm hooks:test`), because a hook that denies can stop legitimate work.
 - **`apps/`** — the **AI-DLC Console**: a NestJS 11 API (`apps/api/`) and a React 19 + Ant
   Design 6 client (`apps/web/`), in a pnpm workspace. A portfolio view and control plane over
   every repository that has an `.ai/` plan — where each feature stands, what is waiting on a
@@ -63,6 +71,19 @@ skills/                       the two installable Claude Code skill packages
         ├── evidence_check.py     turns a ticked checkbox back into a checkable claim (stdlib)
         └── runner/run.py         the only file with a dependency: Playwright, driven by verify.py
 
+plugin/ai-dlc/                Claude Code plugin — the agents that work inside the gates,
+├── .claude-plugin/           and the hooks that stop an agent stepping around them
+│   └── plugin.json
+├── agents/                   aidlc-explorer, -implementer, -tester, -test-runner,
+│                             -security-reviewer
+├── hooks/
+│   ├── hooks.json            PreToolUse wiring: Bash, Write|Edit|MultiEdit, Read
+│   ├── rules.py              shared — wire protocol, shell parsing, wrapper stripping
+│   ├── block_dangerous.py    destructive commands + controller-integrity refusals
+│   ├── no_secrets.py         credentials in commands, content, reads and git
+│   └── test_hooks.py         the only test suite outside apps/ — `pnpm hooks:test`
+└── README.md                 the rule tables and the `.claude/aidlc-hooks.json` escape hatch
+
 apps/                         the AI-DLC Console — the only built and tested code in the repo
 ├── api/                      NestJS 11, Clean Architecture + DDD; shells out to the controller
 │   └── Dockerfile            above and shows its verdict verbatim. Seven bounded contexts.
@@ -81,6 +102,7 @@ docs/
 ├── PILOT-RUNBOOK.md          end-to-end dry run of both skills against a real repo
 └── console.md                the console's design, its two integrations, getting started
 
+.claude-plugin/marketplace.json   makes this repo installable: `/plugin marketplace add <path>`
 CLAUDE.md                     guidance for Claude Code when working in this repo
 package.json                  pnpm workspace root — scripts spanning apps/ and skills/
 pnpm-workspace.yaml           declares apps/api and apps/web
@@ -94,6 +116,10 @@ docker-compose.yml            api + web; `prod` and `dev` profiles pick the web 
 - Claude Code (the packages under `skills/` are meant to be loaded into `~/.claude/skills/`)
 - Node 22+ and pnpm 10+ **only** if you run the console under `apps/` — the skills work
   without either
+- [`rtk`](https://github.com/rtk-ai/rtk) — **optional**. A token-filtering CLI proxy the
+  skills and agents prefer for reading a repo; without it on `PATH` they run the native
+  command and behave identically. See "Optional: `rtk`" below for the one thing it must
+  never be pointed at
 - A separate *target* repo to plan features in — this repo is the tooling, not the project
   you'll run it against
 - Playwright **only** if you use `ai-dlc-verify` against a project that actually runs it
@@ -158,6 +184,20 @@ uowg --version          # → uow_graph X.Y.Z (ruleset N)
 aidlc-verify --version  # → aidlc_verify X.Y.Z (ruleset N)   — the two rulesets must match
 ```
 
+The plugin is **installed, not copied** — the repo root carries the marketplace manifest, so
+Claude Code tracks its version and can update it in place:
+
+```bash
+claude plugin marketplace add "$AIDLC_SRC"    # or, in a session: /plugin marketplace add <path>
+claude plugin install ai-dlc@ai-dlc
+claude plugin details ai-dlc@ai-dlc           # 5 agents, 1 PreToolUse hook (2 scripts)
+```
+
+After changing anything under `plugin/`, bump `version` in
+`plugin/ai-dlc/.claude-plugin/plugin.json` and re-run `claude plugin update ai-dlc@ai-dlc`:
+the installed copy lives in `~/.claude/plugins/cache/`, so an un-bumped edit in this checkout
+is not what the hooks actually run.
+
 ### Per-repo install
 
 `ai-dlc-verify`, and a stack profile if one fits, go inside each repo you plan features in —
@@ -187,6 +227,32 @@ mkdir -p .ai
 Running without a profile still works — you lose the stack-specific definition-of-done and a
 richer discovery map, but gates, decomposition, the graph, and sync all work unchanged via
 `skills/ai-dlc-core/scripts/discover_generic.py`.
+
+## Optional: `rtk`
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy — `rtk tree`, `rtk grep`,
+`rtk read`, `rtk git`, `rtk test` return the same information in a fraction of the context,
+which is most of what discovery and ticket exploration spend. Every `SKILL.md` and agent file
+in this repo prefers it and every one of them marks it optional: nothing here depends on it,
+no script shells out to it, and without it on `PATH` the native command runs instead.
+
+One rule matters more than the saving. **Never read a verdict through a filter** — `aidlc
+check`, `aidlc status`, `uowg`, `verify.py --doctor` and `evidence_check.py` print *why*
+something was refused, and that reason is the thing you act on. A condensed "G3 failed" that
+drops which acceptance criterion is uncovered turns a machine-checkable precondition back into
+the prose this project exists to replace.
+
+A second caveat is about absence. rtk's readers apply their own ignore rules, so a filtered
+search is a fast *index*, not an exhaustive one — `rtk find . -name '__pycache__' -type d`
+reports `0 matches` in this repo where native `find` lists three. When "there are none" is the
+answer you are about to act on, confirm it natively.
+
+The plugin handles rtk for you rather than trusting that rule. rtk ships a hook that *rewrites*
+commands, so `git push` silently becomes `rtk git push`; since every hook rule dispatches on
+the program a command invokes, an unstripped prefix would disable the guard for exactly the
+commands it exists to catch. `rules.head_of` strips `rtk` the way it strips `sudo`, and
+`rtk proxy rm -rf /`, `rtk run -c 'rm -rf /'` and `rtk read .env` are each refused as the
+command underneath. `plugin/ai-dlc/README.md` has the table.
 
 ## Running the console
 
@@ -294,8 +360,20 @@ python3 -m py_compile skills/ai-dlc-core/scripts/aidlc.py   # or: pnpm skills:ch
 and by running the command end-to-end against a scratch `.ai/features/<slug>` directory, as
 walked through in `docs/PILOT-RUNBOOK.md`.
 
-The console *does* have tests, and they are the fast check that a change did not break the
-read model:
+The plugin *does* have a test suite, and it is the one to run after touching a hook — the
+tests drive the hooks as subprocesses over stdin, because the JSON wire protocol is the
+contract:
+
+```bash
+pnpm hooks:test   # 54 cases, run from the repo root
+```
+
+Every rule needs a case both ways: that it catches what it exists to catch, and that it stays
+quiet on the neighbouring command that is fine. The second half is what decides whether anyone
+keeps the plugin enabled.
+
+The console has tests too, and they are the fast check that a change did not break the read
+model:
 
 ```bash
 pnpm test         # apps/api domain tests — no I/O, no subprocesses
@@ -307,5 +385,7 @@ pnpm typecheck    # both apps
 - `CLAUDE.md` — architecture notes, the controller pattern, versioning discipline
   (`RULESET`), and reading order for `skills/ai-dlc-core/references/*.md`
 - `docs/PILOT-RUNBOOK.md` — the full walkthrough, including a real bug it caught during dry-run
+- `plugin/ai-dlc/README.md` — every hook rule, what each one refuses and why, how wrapped
+  commands are resolved, and the `.claude/aidlc-hooks.json` escape hatch for a false positive
 - `docs/console.md` — the console's design: why it never writes plan state, how it groups
   repositories into projects, and the two integrations worth their own paragraph

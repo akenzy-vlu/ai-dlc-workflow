@@ -147,17 +147,87 @@ def written_content(event):
 # Shell parsing
 # ---------------------------------------------------------------------------
 
+#: `rtk` (https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy. Every one of its
+#: subcommands either *is* another program (`rtk git push` runs git) or *wraps* one
+#: (`rtk proxy rm -rf /` runs rm). Every rule in this package dispatches on the program name,
+#: so an unstripped `rtk` prefix reports program `rtk`, matches nothing, and silently disables
+#: the guard for exactly the commands it exists to catch.
+RTK = "rtk"
+
+#: Subcommands whose remaining argv *is* another command. `proxy`/`run` forward it verbatim;
+#: `err`/`test`/`summary` filter the output but still execute the command underneath.
+RTK_WRAPPERS = {"proxy", "run", "err", "test", "summary"}
+
+#: Subcommands that stand in for a named program, mapped to the binary whose rules apply.
+#: `rtk read` prints a file, so it is a file dumper exactly as `cat` is.
+RTK_ALIASES = {
+    "git": "git",
+    "gh": "gh",
+    "grep": "grep",
+    "find": "find",
+    "ls": "ls",
+    "tree": "tree",
+    "diff": "diff",
+    "wc": "wc",
+    "curl": "curl",
+    "wget": "wget",
+    "docker": "docker",
+    "kubectl": "kubectl",
+    "aws": "aws",
+    "psql": "psql",
+    "npm": "npm",
+    "npx": "npx",
+    "pnpm": "pnpm",
+    "cargo": "cargo",
+    "dotnet": "dotnet",
+    "read": "cat",
+    "json": "cat",
+    "log": "cat",
+}
+
+#: How deep `rtk run -c '...'` nesting is followed before giving up. A hook the user waits on
+#: must terminate; three levels is far past anything a real command line does.
+RTK_NEST_CEILING = 3
+
 #: Separators that start a new command within one Bash invocation.
 _SEGMENT_SPLIT = re.compile(r"(?:\|\||&&|[;|\n])")
 
 
-def segments(command):
+def segments(command, _depth=0):
     """Split a command line into the individual commands it runs.
 
     `cd /tmp && rm -rf /` is one Bash tool call and two commands; a scanner that only looks at
     the first token of the whole string sees `cd` and waves it through.
+
+    `rtk run -c 'rm -rf /'` is the same problem one level down: the command is a single argv
+    word, so no amount of prefix-stripping in `head_of` reaches it. The inner string is
+    scanned as well as, not instead of, the segment that carries it.
     """
-    return [part.strip() for part in _SEGMENT_SPLIT.split(command) if part.strip()]
+    parts = [part.strip() for part in _SEGMENT_SPLIT.split(command) if part.strip()]
+    if _depth >= RTK_NEST_CEILING:
+        return parts
+    expanded = []
+    for part in parts:
+        expanded.append(part)
+        inner = rtk_command_string(part)
+        if inner:
+            expanded.extend(segments(inner, _depth + 1))
+    return expanded
+
+
+def rtk_command_string(segment):
+    """The shell string inside `rtk run -c '<command>'`, which `sh -c` runs verbatim."""
+    parsed = tokens(segment)
+    if not parsed or os.path.basename(parsed[0]) != RTK:
+        return ""
+    for position, word in enumerate(parsed[1:], start=1):
+        if word in {"-c", "--command"}:
+            return parsed[position + 1] if position + 1 < len(parsed) else ""
+        if word.startswith("--command="):
+            return word.split("=", 1)[1]
+        if word.startswith("-c") and len(word) > 2 and not word.startswith("--"):
+            return word[2:]
+    return ""
 
 
 def tokens(segment):
@@ -172,8 +242,28 @@ def tokens(segment):
         return segment.split()
 
 
+def rtk_step(parsed, index):
+    """Resolve one `rtk` prefix at `index`.
+
+    Returns `(alias, next_index)` — `alias` empty for a wrapper, whose inner command is
+    parsed by continuing the walk — or `None` when the subcommand is rtk's own (`rtk gain`)
+    and there is no underlying program to police.
+    """
+    cursor = index + 1
+    while cursor < len(parsed) and parsed[cursor].startswith("-"):
+        cursor += 1  # rtk's own flags, before the subcommand: `rtk -v git push`
+    if cursor >= len(parsed):
+        return None
+    subcommand = parsed[cursor]
+    if subcommand in RTK_WRAPPERS:
+        return "", cursor + 1
+    if subcommand in RTK_ALIASES:
+        return RTK_ALIASES[subcommand], cursor + 1
+    return None
+
+
 def head_of(segment):
-    """The program a segment invokes, with `sudo`/`env`/`command` prefixes stripped."""
+    """The program a segment invokes, with `sudo`/`env`/`command`/`rtk` prefixes stripped."""
     parsed = tokens(segment)
     index = 0
     while index < len(parsed):
@@ -183,6 +273,15 @@ def head_of(segment):
             continue
         if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", parsed[index]):
             index += 1  # VAR=value prefix, at any depth: `FOO=1 BAR=2 rm -rf /`
+            continue
+        if word == RTK:
+            step = rtk_step(parsed, index)
+            if step is None:
+                return word, parsed[index:]  # rtk's own command: `rtk gain`, `rtk config`
+            alias, index = step
+            if alias:
+                # Report the underlying binary, so every existing rule matches unchanged.
+                return alias, [alias, *parsed[index:]]
             continue
         return word, parsed[index:]
     return "", []

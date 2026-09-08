@@ -177,6 +177,32 @@ Ticking a box is still a claim. `evidence_check.py` is what turns it into a fact
 screenshot at every required environment × declared viewport, that no step failed, and that
 the recorded commit sha matches HEAD. A skipped run reports N/A, never a failure.
 
+## Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy, and nothing here
+depends on it — this package shells out to Playwright, never to rtk. Where it is installed
+it rewrites commands through a PreToolUse hook rather than asking you to type it: `grep`
+runs as `rtk grep`, `cat` as `rtk read`. The transcript shows what you wrote, so an
+un-prefixed command is not evidence of an unfiltered read.
+
+Two outputs here are decisions, not text, and neither is in rtk's rewrite table — so they
+arrive unfiltered by default. Keep it that way. **`verify.py --doctor` is a rung decision**:
+`capable`, `skipped`, `not applicable` or `config error`. Writing a checkbox on the wrong
+rung produces evidence a project can never satisfy, and the only way out is editing
+`.aidlc-state.yaml` — the one move that makes the whole apparatus theatre.
+**`evidence_check.py` is a verdict** on whether a ticked box is supported by `run.json`.
+Never pipe either through `rtk err`, `rtk summary`, or anything that decides which lines
+matter.
+
+One trap when reading a run back. A filtered search proves presence, not absence — rtk's
+readers apply their own ignore rules, so a `find` that reports nothing is not proof a
+screenshot is missing. `evidence/` is exactly the kind of generated, gitignored directory
+those rules skip. Before you conclude an artifact was never written, check it raw:
+
+```bash
+rtk proxy ls -la <feature>/evidence/    # `rtk proxy <cmd>` runs <cmd> unfiltered
+```
+
 ## Reference files
 
 Read at the phase that needs them, not upfront.

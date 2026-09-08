@@ -36,6 +36,21 @@ The most common failure here is a confident map that describes the *older* half 
 because the older half has more files. Say when you see two conventions and cannot tell which
 one is current.
 
+## Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy that returns the same information in a
+fraction of the context. It is **optional**: when it is not on `PATH`, run the native
+command and nothing about this job changes.
+
+Reading a repo you have never seen is almost all of this job, so use it: `rtk tree` and
+`rtk ls` for structure, `rtk find` and `rtk grep` to locate a convention, `rtk read` for a
+file you only need the shape of.
+
+Read *natively*, in full, the files you are about to make a claim about. A filtered read
+is a summary, and a claim sourced from a summary belongs in the undiscoverable pile — the
+one distinction this job exists to get right. Never filter `aidlc-discover` output: it is
+the draft you then have to check.
+
 ## The rules that are not negotiable
 
 - **Never write `verified_by:`.** That line means a human read your draft and vouched for it,
