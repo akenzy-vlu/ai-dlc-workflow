@@ -1,0 +1,18 @@
+{
+  "name": "ai-dlc",
+  "version": "0.1.0",
+  "description": "The agent-facing half of AI-DLC. Five gate-aware subagents that each refuse the one move that would corrupt the method — an implementer that never accepts its own work, an explorer that never signs its own discovery draft, a reviewer that only rejects — plus two PreToolUse hooks that turn the rules CLAUDE.md states in prose into refusals: no destructive commands, no hand-edits of the controller's state or its generated artifacts, and no credentials in the transcript, the repo or a push. Pairs with the ai-dlc-core and ai-dlc-verify skills, which hold the workflow and the gates.",
+  "author": {
+    "name": "Akenzy"
+  },
+  "keywords": [
+    "ai-dlc",
+    "planning",
+    "gates",
+    "security",
+    "guardrails",
+    "code-review",
+    "agents",
+    "hooks"
+  ]
+}

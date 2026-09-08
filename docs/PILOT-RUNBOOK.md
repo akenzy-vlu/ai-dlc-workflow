@@ -55,14 +55,24 @@ AIDLC_SRC=$(pwd)
 # 1. core is cross-repo tooling — install it once, globally
 cp -r "$AIDLC_SRC/skills/ai-dlc-core" ~/.claude/skills/
 
-# 2. convenience alias (core only — same path on every machine)
+# 2. ai-dlc-verify is stack-agnostic and installs globally too. Everything
+#    project-specific about it lives in the target repo's `.ai/aidlc.yaml`.
+cp -r "$AIDLC_SRC/skills/ai-dlc-verify" ~/.claude/skills/
+
+# 3. convenience aliases — one per script, since these are the only supported
+#    entry points. Put them in ~/.zshrc; the paths are the same on every machine.
 alias aidlc='python3 ~/.claude/skills/ai-dlc-core/scripts/aidlc.py'
 alias uowg='python3 ~/.claude/skills/ai-dlc-core/scripts/uow_graph.py'
+alias aidlc-discover='python3 ~/.claude/skills/ai-dlc-core/scripts/discover_generic.py'
+alias aidlc-registry='python3 ~/.claude/skills/ai-dlc-core/scripts/project_registry.py'
+alias aidlc-verify='python3 ~/.claude/skills/ai-dlc-verify/scripts/verify.py'
+alias aidlc-evidence='python3 ~/.claude/skills/ai-dlc-verify/scripts/evidence_check.py'
 
-# 3. verify
-uowg --version          # → uow_graph 0.4.0 (ruleset 4)
+# 4. verify
+uowg --version          # → uow_graph 0.5.0 (ruleset 5)
+aidlc-verify --version  # → aidlc_verify 0.2.0 (ruleset 5)
 
-# 4. a profile belongs to ONE repo — install it INSIDE that repo, not globally.
+# 5. a profile belongs to ONE repo — install it INSIDE that repo, not globally.
 #    Run this from the pilot repo's root; commit .claude/skills/ so it ships with the code
 #    it describes instead of living only on your machine.
 cd <path-to-the-pilot-repo>
@@ -70,13 +80,31 @@ mkdir -p .claude/skills
 cp -r "$AIDLC_SRC/examples/profile-flutter" .claude/skills/profile-flutter   # sample profile only
 ```
 
+**Optional, but it is what makes the gates hold when an agent is doing the work.** The skills
+are the methodology; the plugin is the enforcement around an agent working inside it — five
+gate-aware subagents and two PreToolUse hooks that refuse the tool calls which would corrupt
+the record the gates are computed from (hand-editing a generated file, setting `current_gate`
+directly, rewriting `history.jsonl`, signing `verified_by` on your own draft).
+
+```bash
+claude plugin marketplace add "$AIDLC_SRC"     # the repo root carries the manifest
+claude plugin install ai-dlc@ai-dlc
+claude plugin details ai-dlc@ai-dlc            # 5 agents, 1 PreToolUse hook
+```
+
+The subagents assume the aliases above exist — they invoke `aidlc`, `uowg` and
+`aidlc-discover`, never a `~/.claude/skills/.../scripts/*.py` path. A hook never exits
+non-zero and every denial names its rule id and says what to do instead; a false positive is
+fixed in `.claude/aidlc-hooks.json` (`allow_paths` / `allow_patterns` / `disabled_rules`),
+never by disabling the plugin.
+
 In the repo (still `<path-to-the-pilot-repo>`):
 
 ```bash
 mkdir -p .ai
 cat > .ai/aidlc.yaml <<'YAML'
 profile: none              # or profile-flutter
-ruleset: 4
+ruleset: 5                 # a NEW repo pins the current ruleset — see the upgrade note below
 layers: [domain, data, presentation, infra, test]
 YAML
 
@@ -102,8 +130,8 @@ usually wants `[domain, application, infra, api, test]`; a Flutter app
 
 ```bash
 # no profile — works on any stack (core is global, same path on every repo)
-python3 ~/.claude/skills/ai-dlc-core/scripts/discover_generic.py . -o .ai/architecture.md
-python3 ~/.claude/skills/ai-dlc-core/scripts/discover_generic.py . --feature <closest-existing>
+aidlc-discover . -o .ai/architecture.md
+aidlc-discover . --feature <closest-existing>
 
 # sample Flutter — richer: enumerates sample_ui_kit widgets and segmentOf() route keys.
 # The profile is project-scoped, so its path is inside the repo, not under ~/.claude/skills/
@@ -218,12 +246,52 @@ An implementer cannot accept its own work. A ticket sitting in `review` keeps it
 blocked, so review lag shows up as stalled parallelism rather than as invisible debt. Working
 solo, `done --no-review` still works and records the bypass.
 
+### G4 — Verification evidence
+
+The other half of G4 is the Demo script, driven in a browser and screenshotted. Run `--doctor`
+**first and always** — it reports which rung this machine and this repo land on, and changes
+nothing:
+
+```bash
+aidlc-verify .ai/features/<slug> --doctor
+```
+
+| Rung | What it means | What to do |
+| ---- | ------------- | ---------- |
+| `not applicable` | no `verify:` block in `.ai/aidlc.yaml` | nothing — G4 is unaffected |
+| `skipped` | configured, but this machine has no credentials | nothing — the gate is not blocked |
+| `capable` | configured and credentialed | run it; the evidence gates G4 |
+| `config error` | a contradiction in the `verify:` block | fix the config; it will not degrade to `skipped` |
+
+Only `capable` may write checkboxes into `uow.md`. That is not a style rule: `check_g4` counts
+unticked `- [ ]` boxes across the whole file, so a "Verification evidence" section written on
+any other rung produces boxes the pilot can never tick, and the only way out is hand-editing
+`.aidlc-state.yaml` — the one move that makes the whole apparatus theatre.
+
+```bash
+aidlc-verify   .ai/features/<slug> --write      # only after --doctor says `capable`
+aidlc-evidence .ai/features/<slug>              # a ticked box must be backed by run.json
+```
+
+The browser runner is the only thing in either package with a dependency, and it is needed
+only on the `capable` rung:
+
+```bash
+pip install -r ~/.claude/skills/ai-dlc-verify/scripts/runner/requirements.txt
+playwright install chromium
+# if the system Python is externally managed, use a venv and point the runner at it:
+#   AIDLC_VERIFY_PYTHON=~/.venvs/aidlc-verify/bin/python aidlc-verify <dir> --doctor
+```
+
+Add `08-evidence.md`, `evidence/` and `.ai/.auth/` to the pilot repo's `.gitignore`.
+`.ai/credentials.env` is **not** matched by a `.env*` pattern — check it with
+`git check-ignore -v .ai/credentials.env` rather than assuming.
+
 ### Sync and report
 
 ```bash
 # core again — global, same path regardless of which repo you're reporting on
-python3 ~/.claude/skills/ai-dlc-core/scripts/project_registry.py \
-  --db ~/aidlc/central.db --scan .:<repo-label> --report
+aidlc-registry --db ~/aidlc/central.db --scan .:<repo-label> --report
 ```
 
 One repo makes the portfolio view thin. That is expected: the cross-repo queries are the whole

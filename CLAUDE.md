@@ -4,17 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repository is
 
-This repo is one workspace holding two halves that ship separately:
+This repo is one workspace holding three halves that ship separately:
 
 - **`skills/`** — three Claude Code skill packages (two shipped, one example). Stdlib-only
   Python 3, no build, no test suite. These get copied into `~/.claude/skills/` and run against
   *other* repositories.
+- **`plugin/ai-dlc/`** — a Claude Code **plugin**: the five AI-DLC subagents and the two
+  PreToolUse hooks. Stdlib-only Python 3 like the skills, but unlike them it *does* have a test
+  suite (`pnpm hooks:test`), because a hook that denies can stop legitimate work. Installed via
+  `/plugin`, not by copying.
 - **`apps/`** — the AI-DLC Console, a pnpm workspace (NestJS 11 + React 19). The only built and
   tested code here. It is a **client** of the skills above: it never writes plan state itself,
   it shells out to `aidlc.py` / `uow_graph.py` and shows the verdict verbatim.
 
 Treat them as separate change surfaces. A `RULESET` bump under `skills/` is a breaking change
-the console must be checked against; a console change never alters gate semantics.
+the console must be checked against; a console change never alters gate semantics; and a hook
+under `plugin/` can refuse a tool call the other two would have allowed, which is the point.
 
 ```
 skills/ai-dlc-core/           stack-agnostic feature-planning workflow
@@ -65,9 +70,27 @@ examples/profile-flutter/    EXAMPLE stack profile — reference impl of the con
 └── scripts/
     └── discover_repo.py      profile-specific inventory (sample_ui_kit, segmentOf() routes, ...)
 
+plugin/ai-dlc/               Claude Code plugin — the agents that work inside the gates and
+├── .claude-plugin/               the hooks that stop an agent stepping around them
+│   └── plugin.json
+├── agents/                  aidlc-explorer, -implementer, -tester, -test-runner,
+│                              -security-reviewer. Each is defined as much by what it
+│                              refuses (explorer never signs `verified_by`, reviewer never
+│                              accepts, test-runner writes nothing) as by what it does.
+├── hooks/
+│   ├── hooks.json           PreToolUse wiring: Bash, Write|Edit|MultiEdit, Read
+│   ├── rules.py             shared — wire protocol, shell parsing, allowlist config
+│   ├── block_dangerous.py   destructive commands + controller-integrity refusals
+│   ├── no_secrets.py        credentials in commands, content, reads and git
+│   └── test_hooks.py        the only test suite outside apps/ — `pnpm hooks:test`
+└── README.md                the rule tables and the `.claude/aidlc-hooks.json` escape hatch
+
+.claude-plugin/marketplace.json   makes this repo installable: `/plugin marketplace add <path>`
+
 docs/PILOT-RUNBOOK.md        end-to-end dry run of both skills against a real repo — read first
 docs/console.md              the console's design, its integrations, and getting started
 package.json                 pnpm workspace root: dev / build / typecheck / test / skills:check
+                               / hooks:test
 docker-compose.yml           api + web, with `prod` and `dev` profiles selecting the web
 .env.example                 compose config; AIDLC_WORKSPACE is the one required value
 ```
@@ -157,6 +180,13 @@ changes (see below).
 
 The two halves have completely different toolchains. Paths below are relative to the repo root.
 
+**Working tree, not the aliases.** The `aidlc` / `uowg` / `aidlc-discover` / `aidlc-registry` /
+`aidlc-verify` / `aidlc-evidence` aliases resolve to the *installed* copies under
+`~/.claude/skills/`, which is what a target repo's planning session should use. Developing the
+skills is the one case that wants the opposite: run `python3 skills/…/scripts/*.py` from this
+working tree, or you will be exercising the last-installed version and your edit will appear to
+do nothing. Same trap as `AIDLC_CORE_PATH` for the console, below.
+
 ### The skills (`skills/`)
 
 No package manager, no build, no test runner. Everything is invoked directly:
@@ -205,6 +235,30 @@ The skills have no automated test suite. Validate changes
 to a script by running it end-to-end against a scratch `.ai/features/<slug>` directory (see
 `docs/PILOT-RUNBOOK.md` for the exact walkthrough that was used to dry-run this system, including
 a real bug it caught) and by running `python3 -m py_compile` on anything you touch.
+
+### The plugin (`plugin/ai-dlc/`)
+
+Stdlib-only Python 3, no build — but this is the one thing outside `apps/` with a test suite,
+because a hook that denies can stop legitimate work:
+
+```bash
+pnpm hooks:test          # 39 cases, run from the repo root
+python3 -m unittest discover -s plugin/ai-dlc/hooks -p 'test_*.py' -v    # the same, verbose
+
+# Drive a hook by hand, exactly as the harness does — JSON on stdin, decision on stdout
+echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"'$PWD'",
+       "tool_input":{"command":"rm -rf /"}}' | python3 plugin/ai-dlc/hooks/block_dangerous.py
+
+# Install it (the repo root carries the marketplace manifest)
+/plugin marketplace add <this-repo>
+/plugin install ai-dlc@ai-dlc
+```
+
+The tests run the hooks as subprocesses over stdin rather than importing `main()`: the wire
+protocol *is* the contract, so a change to the JSON shape has to fail the suite. Every rule
+needs a case both ways — that it catches what it exists to catch, and that it stays quiet on
+the neighbouring command that is fine. The second half is what decides whether anyone keeps
+the plugin enabled.
 
 ### The console (`apps/`)
 
@@ -331,6 +385,20 @@ Concretely:
   state machine gated by `ALLOWED_FROM`, enforcing that only a human can `accept` (never the
   same actor that `submit`ted) unless `--no-review` is passed, which itself gets recorded in
   the audit trail rather than hidden.
+- **The hooks under `plugin/ai-dlc/hooks/` are this same pattern one level down.** The
+  controller refuses to advance a gate whose preconditions are unmet; the hooks refuse the tool
+  calls that would corrupt the record those preconditions are computed from. Every rule in
+  `block_dangerous.py`'s second class is a rule stated in prose elsewhere in this file — never
+  hand-edit the three generated files, never set `current_gate` directly, `history.jsonl` is
+  append-only, `verified_by` is a human's signature — and prose is exactly the enforcement this
+  project is premised on not trusting. Two properties are load-bearing there and a change must
+  preserve both: **a hook never exits non-zero** (a matched rule denies by printing a decision;
+  an internal error allows and prints a `systemMessage`), and every denial names its rule id
+  and says what to do instead. The first is the same argument as `verify.py`'s `skipped` rung —
+  a guard that fails loudly on ordinary work gets switched off, and a switched-off guard is
+  worse than an absent one. Detection is heuristic, so `.claude/aidlc-hooks.json` carries
+  `allow_paths` / `allow_patterns` / `disabled_rules`, and a false positive is fixed there
+  rather than by disabling the plugin.
 - **`uow_graph.py`** is the thing `aidlc.py` shells out to (via `run_uow_graph`, a
   subprocess call resolved relative to `aidlc.py`'s own directory — both scripts must stay
   siblings inside `skills/ai-dlc-core/scripts/`) for G3 and G5 checks, and is also runnable
@@ -418,13 +486,25 @@ Other invariants worth preserving:
 
 ### Versioning discipline: `RULESET`
 
-`uow_graph.py` defines `RULESET = 4` and `check_ruleset()` refuses to silently re-judge a
+`uow_graph.py` defines `RULESET = 5` and `check_ruleset()` refuses to silently re-judge a
 plan authored under different validation rules — the target repo pins its ruleset in
 `.ai/aidlc.yaml`, and a mismatch is surfaced as an explicit warning rather than a mysterious
 new failure. **Bump `RULESET` whenever you change validation in a way that could make a
 previously-valid plan fail**, and bump `__version__` for any other change. This is the one
 number that must not be changed casually — it's the seam that lets this tooling evolve
 without silently invalidating plans in every repo that uses it.
+
+Compatibility is **per plan, not per repo**: `aidlc init` stamps the tool's ruleset into
+`.aidlc-state.yaml`, an unstamped plan is judged under ruleset 4, and the `ruleset:` pin in
+`.ai/aidlc.yaml` is advisory — so `warn: plan was authored under ruleset 4, tool enforces 5`
+on this repo's own feature is the design working, not a defect (`docs/PILOT-RUNBOOK.md`, the
+ruleset-5 upgrade note).
+
+`verify.py` carries its own `RULESET` that **mirrors** core's rather than judging
+independently (`# tracks ai-dlc-core's uow_graph.RULESET; bump together`) — it gates no
+behaviour, `ruleset_warning()` only compares it to the repo pin. Both are at 5. Keep them
+there in one commit: verify's check is exact equality, not `<`, so a package left behind
+warns on precisely the repos core considers current.
 
 ### Frontmatter schemas are contracts
 

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ai-dlc",
+  "description": "AI-DLC: gate-enforced feature planning. This marketplace ships the agent-facing plugin; the workflow itself lives in the skills under skills/.",
+  "owner": {
+    "name": "Akenzy"
+  },
+  "plugins": [
+    {
+      "name": "ai-dlc",
+      "description": "Five gate-aware AI-DLC subagents and two PreToolUse hooks that enforce the controller's integrity rules and keep credentials out of the transcript and out of git.",
+      "category": "workflow",
+      "source": "./plugin/ai-dlc"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ feature: aidlc-core-gate-hardening
 slug: 2026090601-aidlc-core-gate-hardening
 profile: none
 created: 2026-09-06T14:38:12
-current_gate: G3
+current_gate: G5
 history:
   - gate: G0
     action: passed
@@ -211,3 +211,13 @@ history:
     at: 2026-09-06T20:53:31
     by: Claude
     ticket: T-04-05
+  - gate: G4
+    action: passed
+    at: 2026-09-06T21:01:26
+    by: Akenzy
+    evidence: all 18 tickets done, all UoW checklists ticked
+  - gate: G5
+    action: passed
+    at: 2026-09-06T21:04:09
+    by: Akenzy
+    evidence: assumptions resolved, ADRs settled, graph valid

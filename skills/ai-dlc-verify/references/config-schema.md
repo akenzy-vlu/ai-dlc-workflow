@@ -249,7 +249,7 @@ described but off:
 
 ```yaml
 profile: profile-acme-web
-ruleset: 4
+ruleset: 5
 layers: [page, component, state, api, schema, util, verify]
 
 verify:
