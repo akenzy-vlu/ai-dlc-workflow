@@ -77,12 +77,52 @@ Reached through an editor tool or through the shell, both are covered.
    is listed explicitly because a `.env*` gitignore pattern does not match it.
 4. **git** — staging a credential file, committing with one in the index, or pushing commits
    that touch one.
+5. **Sending the file elsewhere** — `curl -d @.env`, `curl -T`, `wget --post-file=`,
+   `scp`/`rsync` of a credential file (`secret-upload`), and `cp`/`mv` of one to a path the
+   other rules no longer recognise (`secret-copy`). Neither the transcript nor the index ever
+   sees these, so coverages 3 and 4 both miss them; an upload is as final as a push.
+6. **Printing a live credential** — `gcloud auth print-access-token`, `aws configure get
+   *secret*`, `aws secretsmanager get-secret-value`, `kubectl get secret -o yaml`, `op read`,
+   `vault kv get`, `security find-generic-password`, `heroku config`, `gh auth token`,
+   `git credential fill` (`credential-command`); and whole-environment dumps — bare `env` or
+   `printenv`, `printenv <NAME_THAT_LOOKS_SECRET>`, `export -p` (`env-dump`). No secret file is
+   involved: the value arrives from a keychain, a cloud API or the process environment.
+
+The precision line for the last two is drawn at what actually reaches the transcript.
+`kubectl get secret <name>` with no output flag lists names and is allowed; add `-o yaml` and
+it is refused. `cp .env .env.bak` stays inside the credential world and is allowed;
+`cp .env /tmp/x` is not. `env | grep -v TOKEN` pipes the dump to another program rather than
+to the transcript, so only a bare `env` that *is* the whole command is refused.
 
 Writing *into* `.env` or `.ai/credentials.env` is allowed on purpose: they are the designated
 home for a real credential, and refusing there would push it into source instead. Those files
 are protected on the read side and at git.
 
 Denial reasons never echo the matched secret back — a reason is transcript too.
+
+## Wrapped commands: `rtk` and friends
+
+Every rule below dispatches on the program a command invokes, so a wrapper that renames it
+disables the rule. [`rtk`](https://github.com/rtk-ai/rtk) — the token-filtering CLI proxy the
+AI-DLC skills recommend — is the case that matters in practice, because it ships a PreToolUse
+hook of its own that *rewrites* commands: on a machine with rtk installed, `git push` becomes
+`rtk git push` without anyone choosing it.
+
+`rules.head_of` therefore strips an `rtk` prefix the same way it strips `sudo` and `env`, and
+resolves the subcommand to the program whose rules apply:
+
+| written | policed as |
+| --- | --- |
+| `rtk git add <path>` | `git add <path>` |
+| `rtk read <path>` | `cat <path>` — a file dumper |
+| `rtk proxy rm -rf /`, `rtk err …`, `rtk summary …` | the command they wrap |
+| `rtk run -c '<command>'` | the shell string inside, scanned as its own segment |
+| `rtk gain`, `rtk config` | nothing — rtk's own commands run no other program |
+
+Adding a wrapper to `RTK_WRAPPERS` or `RTK_ALIASES` in `rules.py` extends this; a wrapper
+that is neither is treated as rtk's own command and policed no further. `rtk run -c` nesting
+is followed to `RTK_NEST_CEILING` levels, because a hook the user is waiting on must
+terminate.
 
 ## When a hook is wrong
 

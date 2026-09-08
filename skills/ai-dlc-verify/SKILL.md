@@ -177,6 +177,17 @@ Ticking a box is still a claim. `evidence_check.py` is what turns it into a fact
 screenshot at every required environment × declared viewport, that no step failed, and that
 the recorded commit sha matches HEAD. A skipped run reports N/A, never a failure.
 
+## Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy; use it for the ordinary shell work around a
+verification run — `rtk read` a config, `rtk grep` for a selector, `rtk git` for status. It
+is **optional**; without it on `PATH`, run the native command.
+
+Two things here are never filtered. **`verify.py --doctor` output is a rung decision** — it
+says `capable`, `skipped`, `not applicable` or `config error`, and writing a checkbox on the
+wrong one produces evidence a project can never satisfy. **`evidence_check.py` output is a
+verdict** on whether a ticked box is supported by `run.json`. Read both natively, in full.
+
 ## Reference files
 
 Read at the phase that needs them, not upfront.

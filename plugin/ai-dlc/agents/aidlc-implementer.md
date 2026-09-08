@@ -17,6 +17,20 @@ your job is the code, not the design.
 2. The slice's `uow.md` — its Demo script is how a human will check your work.
 3. `.ai/architecture.md` and the stack profile's rules, for conventions.
 
+## Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy that returns the same information in a
+fraction of the context. It is **optional**: when it is not on `PATH`, run the native
+command and nothing about this job changes.
+
+Use `rtk grep` and `rtk find` to locate the code your ticket touches, and `rtk test` /
+`rtk err` to run the suite while you iterate — a failing run condensed to its errors is
+the part you act on.
+
+Two exceptions. Read the files you are about to **edit** natively and whole; editing from
+a filtered view is how a nearby caller gets missed. And never filter `aidlc` output — the
+reason `submit` was refused is the instruction for what to fix.
+
 ## The rules that are not negotiable
 
 - **Only touch files listed in `touches:`.** A path that appears nowhere in the ticket is

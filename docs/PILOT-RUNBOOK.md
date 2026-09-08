@@ -41,11 +41,14 @@ map that can enumerate your shared component library. Everything else — gates,
 the graph, sync — works unchanged. Write a profile later, once the stack has earned it
 (`skills/ai-dlc-core/references/profile-contract.md`).
 
-**Core and a profile install to different scopes. That split is deliberate, not a shortcut:**
+**The three packages install to different scopes. That split is deliberate, not a shortcut —
+each package declares its own `scope:` in its `SKILL.md`, and that is what decides where it may
+be installed:**
 
 | Package                                       | Install to                                               | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | --------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ai-dlc-core`                                 | `~/.claude/skills/` — **global**                         | You plan features in more than one repo, and `project_registry.py` explicitly aggregates plans *across* repos — the tooling that reads them has to be available everywhere, not scoped to one checkout.                                                                                                                                                                                                                                                                              |
+| `ai-dlc-verify`                               | `<repo>/.claude/skills/` — **project**, committed to git  | Everything it reads is in the repo: the `verify:` block of `.ai/aidlc.yaml`, the environments, the credentials file, the evidence it writes back. Installing it beside that config versions the two together, and keeps it out of the repos that have no browser UI to verify. |
 | a stack profile, e.g. `profile-flutter` | `<repo>/.claude/skills/` — **project**, committed to git | A profile is scoped to the one repo it describes — its own `SKILL.md` names concrete path markers (`apps/sample_app`, `packages/sample_*`) that exist in that repo alone. Installing it globally makes it *visible* in every other project too, relying entirely on those markers to self-exclude when the repo is wrong. Installing it inside the repo means it only ever loads where it applies, and it reaches every teammate via `git clone` instead of a manual `cp` on every machine. |
 
 ```bash
@@ -55,28 +58,31 @@ AIDLC_SRC=$(pwd)
 # 1. core is cross-repo tooling — install it once, globally
 cp -r "$AIDLC_SRC/skills/ai-dlc-core" ~/.claude/skills/
 
-# 2. ai-dlc-verify is stack-agnostic and installs globally too. Everything
-#    project-specific about it lives in the target repo's `.ai/aidlc.yaml`.
-cp -r "$AIDLC_SRC/skills/ai-dlc-verify" ~/.claude/skills/
+# 2. ai-dlc-verify is project-scoped — it is NOT installed here. It goes inside each repo
+#    that has a browser UI to verify, in step 5 below, next to the `verify:` block it reads.
 
-# 3. convenience aliases — one per script, since these are the only supported
-#    entry points. Put them in ~/.zshrc; the paths are the same on every machine.
+# 3. convenience aliases — one per script, since these are the only supported entry points.
+#    Put them in ~/.zshrc. The core ones name the global install, the same path on every
+#    machine. The verify ones name THIS CHECKOUT: verify is installed per repo, so a
+#    per-repo copy is a snapshot and there is no single path that names all of them — the
+#    checkout is the one copy that is always current.
 alias aidlc='python3 ~/.claude/skills/ai-dlc-core/scripts/aidlc.py'
 alias uowg='python3 ~/.claude/skills/ai-dlc-core/scripts/uow_graph.py'
 alias aidlc-discover='python3 ~/.claude/skills/ai-dlc-core/scripts/discover_generic.py'
 alias aidlc-registry='python3 ~/.claude/skills/ai-dlc-core/scripts/project_registry.py'
-alias aidlc-verify='python3 ~/.claude/skills/ai-dlc-verify/scripts/verify.py'
-alias aidlc-evidence='python3 ~/.claude/skills/ai-dlc-verify/scripts/evidence_check.py'
+alias aidlc-verify="python3 $AIDLC_SRC/skills/ai-dlc-verify/scripts/verify.py"
+alias aidlc-evidence="python3 $AIDLC_SRC/skills/ai-dlc-verify/scripts/evidence_check.py"
 
 # 4. verify
 uowg --version          # → uow_graph 0.5.0 (ruleset 5)
 aidlc-verify --version  # → aidlc_verify 0.2.0 (ruleset 5)
 
-# 5. a profile belongs to ONE repo — install it INSIDE that repo, not globally.
-#    Run this from the pilot repo's root; commit .claude/skills/ so it ships with the code
-#    it describes instead of living only on your machine.
+# 5. the project-scoped packages belong to ONE repo — install them INSIDE that repo, not
+#    globally. Run this from the pilot repo's root; commit .claude/skills/ so they ship with
+#    the code they describe instead of living only on your machine.
 cd <path-to-the-pilot-repo>
 mkdir -p .claude/skills
+cp -r "$AIDLC_SRC/skills/ai-dlc-verify" .claude/skills/ai-dlc-verify        # only if it has a UI
 cp -r "$AIDLC_SRC/examples/profile-flutter" .claude/skills/profile-flutter   # sample profile only
 ```
 
@@ -97,6 +103,18 @@ The subagents assume the aliases above exist — they invoke `aidlc`, `uowg` and
 non-zero and every denial names its rule id and says what to do instead; a false positive is
 fixed in `.claude/aidlc-hooks.json` (`allow_paths` / `allow_patterns` / `disabled_rules`),
 never by disabling the plugin.
+
+**If you have [`rtk`](https://github.com/rtk-ai/rtk) installed, nothing extra to do here.** The
+skills and subagents will prefer `rtk tree` / `rtk grep` / `rtk read` for the repo reading that
+dominates Phase 0, and fall back to the native command on a machine without it. rtk's own hook
+rewrites commands — `git push` arrives as `rtk git push` — and the plugin strips that prefix
+before matching, so `rtk proxy rm -rf /` and `rtk read .env` are refused exactly as the bare
+commands are.
+
+One thing to keep in mind for the rest of this runbook: **run every `aidlc`, `uowg` and
+`aidlc-evidence` command natively, never through a filter.** Their output is a verdict, and the
+reason a gate was refused is the instruction for what to fix — "G3 failed" without the
+uncovered acceptance criterion is not something you can act on.
 
 In the repo (still `<path-to-the-pilot-repo>`):
 
@@ -277,7 +295,8 @@ The browser runner is the only thing in either package with a dependency, and it
 only on the `capable` rung:
 
 ```bash
-pip install -r ~/.claude/skills/ai-dlc-verify/scripts/runner/requirements.txt
+# read from the checkout — verify is project-scoped, so there is no global copy to name
+pip install -r "$AIDLC_SRC/skills/ai-dlc-verify/scripts/runner/requirements.txt"
 playwright install chromium
 # if the system Python is externally managed, use a venv and point the runner at it:
 #   AIDLC_VERIFY_PYTHON=~/.venvs/aidlc-verify/bin/python aidlc-verify <dir> --doctor

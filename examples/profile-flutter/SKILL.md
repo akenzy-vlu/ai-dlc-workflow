@@ -49,6 +49,16 @@ layers: [domain, data, presentation, infra, test]
 Read it when writing tickets (Phase 3) and again when closing a UoW (G4) or the feature (G5).
 The DoD is the part that earns its keep: it is specific enough to fail.
 
+## Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy. Reading a monorepo is where a profile spends
+its context, so prefer `rtk tree`, `rtk find`, `rtk grep` and `rtk read` over their native
+equivalents when it is installed, and `rtk test` for the suite. It is **optional** — fall
+back to the native command when `rtk` is not on `PATH`.
+
+Do not filter the output of `aidlc`, `uowg` or this profile's `discover_repo.py`: the first
+two are gate verdicts and the third is a draft a human has to sign.
+
 ## Notes for this repo
 
 - **Reuse before you build.** Check `packages/sample_ui_kit/lib/widgets/` first. A genuinely

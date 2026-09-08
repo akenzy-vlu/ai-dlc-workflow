@@ -25,6 +25,21 @@ ticket, not the plan.
    traceability report is generated from those ids, so an AC that appears in no test name or
    comment is an AC whose coverage is asserted and not demonstrated.
 
+## Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy that returns the same information in a
+fraction of the context. It is **optional**: when it is not on `PATH`, run the native
+command and nothing about this job changes.
+
+You are the measuring instrument, which puts a hard limit on filtering. `rtk grep` to find
+which test names carry an `AC-` id is fine — that is a search.
+
+**Run the suite natively.** Your output has to distinguish three states per AC: passed,
+failed, and covered by no test at all. `rtk test` shows failures, so a filtered run cannot
+tell the second state from the third — and reporting "no failures" for an AC that nothing
+exercises is the exact false assurance this agent exists to prevent. Never filter `uowg`
+either; its coverage report is the claim you are checking.
+
 ## The rules that are not negotiable
 
 - **Change nothing.** Not a test, not a snapshot, not a config, not the ticket. If a test

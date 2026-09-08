@@ -93,6 +93,20 @@ off disk, not off the argument.
 yourself about to pass a gate on the user's behalf without them saying so, that is the
 moment to stop and ask instead.
 
+### Shell output: rtk
+
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy. `rtk ls`, `rtk tree`, `rtk read`, `rtk grep`,
+`rtk find`, `rtk git` and `rtk test` return the same information in a fraction of the
+context, which is most of what Phase 0 and ticket exploration spend. Prefer it for reading
+the repo. It is **optional** — when `rtk` is not on `PATH`, run the native command; nothing
+in this workflow depends on it.
+
+**Never read a controller verdict through a filter.** `aidlc check`, `aidlc status`, `uowg`
+and `aidlc-evidence` print *why* a gate is refused, and that reason is the thing you act on.
+Run them natively — not under `rtk err`, `rtk summary`, or anything else that decides which
+lines matter. A condensed "G3 failed" that drops which AC is uncovered turns a
+machine-checkable precondition back into the prose this skill exists to replace.
+
 ## Stance
 
 **1. Assumption over silence.** Missing information becomes a register row with confidence
