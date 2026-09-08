@@ -95,17 +95,42 @@ moment to stop and ask instead.
 
 ### Shell output: rtk
 
-[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy. `rtk ls`, `rtk tree`, `rtk read`, `rtk grep`,
-`rtk find`, `rtk git` and `rtk test` return the same information in a fraction of the
-context, which is most of what Phase 0 and ticket exploration spend. Prefer it for reading
-the repo. It is **optional** — when `rtk` is not on `PATH`, run the native command; nothing
-in this workflow depends on it.
+[`rtk`](https://github.com/rtk-ai/rtk) is a token-filtering CLI proxy. Nothing in this
+workflow depends on it: no script here shells out to it, and on a machine without it every
+command below runs natively and behaves identically.
 
-**Never read a controller verdict through a filter.** `aidlc check`, `aidlc status`, `uowg`
-and `aidlc-evidence` print *why* a gate is refused, and that reason is the thing you act on.
-Run them natively — not under `rtk err`, `rtk summary`, or anything else that decides which
-lines matter. A condensed "G3 failed" that drops which AC is uncovered turns a
-machine-checkable precondition back into the prose this skill exists to replace.
+**You do not type it.** Where rtk is installed it registers a PreToolUse hook that rewrites
+commands for you — `grep …` runs as `rtk grep …`, `cat f` as `rtk read f`, `ls`/`find`/`git`
+likewise, per segment, so pipes and `;` do not prevent it. The transcript still shows what
+you wrote, so **an un-prefixed command is not evidence of an unfiltered read.** Adding `rtk`
+yourself changes nothing; the two things below are what actually matter.
+
+**1. A verdict is never read through a filter.** `aidlc check`, `aidlc status`, `uowg` and
+`aidlc-evidence` print *why* a gate is refused, and that reason is the thing you act on. A
+condensed "G3 failed" that drops which AC is uncovered turns a machine-checkable
+precondition back into the prose this skill exists to replace. These four are not in rtk's
+rewrite table, so this holds by default — never add them to it, and never pipe one through
+`rtk err`, `rtk summary` or anything else that decides which lines matter.
+
+**2. A filtered search proves presence, not absence — and it is blind to this skill's own
+output.** rtk's readers skip what git ignores, and `aidlc init` writes a `.gitignore` into
+every feature directory covering exactly the three generated files. So a rewritten
+`find .ai -name '05-ticket-graph.md'` returns *only the features that did not gitignore it* —
+in one real workspace, 2 of 4, with nothing to signal the other 2 exist. The same blindness
+covers `06-traceability.md`, `registry.yaml`, `08-evidence.md` and `evidence/`.
+
+A search is therefore fine for *locating* something and never sufficient to conclude
+something is missing. Before you record "the repo has no X" in `architecture.md`, decide an
+assumption is undiscoverable, or report a plan artifact absent, confirm it with `rtk proxy`:
+
+```bash
+rtk proxy find . -name '<pattern>'    # `rtk proxy <cmd>` runs <cmd> raw, unfiltered
+rtk proxy cat <file>                  # the one way to force a byte-exact read
+```
+
+`rtk read` is byte-exact on the files this workflow cares about, so ordinary reading of a
+plan artifact or a source file needs no special handling — reach for `rtk proxy` when the
+claim you are about to write down depends on having seen everything.
 
 ## Stance
 
