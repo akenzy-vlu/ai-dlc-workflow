@@ -22,6 +22,11 @@ questions that matter.
 
 ### Run the inventory
 
+Delegate this whole step to **`aidlc-explorer`** whenever the `ai-dlc` plugin is installed —
+never to the built-in `Explore` agent, which cannot write `.ai/architecture.md` and has no
+reason to leave `verified_by:` alone. The commands below are what it runs; run them yourself
+only when the plugin is absent.
+
 ```bash
 # with a stack profile
 python <profile>/scripts/discover_repo.py <repo-root> -o .ai/architecture.md

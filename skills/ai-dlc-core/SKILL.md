@@ -132,6 +132,32 @@ rtk proxy cat <file>                  # the one way to force a byte-exact read
 plan artifact or a source file needs no special handling — reach for `rtk proxy` when the
 claim you are about to write down depends on having seen everything.
 
+## Agents
+
+The `ai-dlc` plugin ships five subagents, one per job this workflow actually has, addressed
+as `ai-dlc:<name>`. **Dispatch to them by name.** They are not interchangeable with the
+built-in `Explore` or general-purpose agents: each is defined by the move it refuses, and
+each refusal is a precondition the controller later trusts.
+
+| Phase | Agent | Refuses |
+|---|---|---|
+| 0 / G0 | `aidlc-explorer` | writing `verified_by:` — that signature is a human's |
+| G4 implement | `aidlc-implementer` | files outside `touches:`; accepting its own work |
+| G4 test | `aidlc-tester` | changing production code to make a test pass |
+| G4 measure | `aidlc-test-runner` | writing anything at all |
+| G4 before `accept` | `aidlc-security-reviewer` | running `accept`, or fixing what it finds |
+
+Phase 0 is the one that goes wrong silently, so it is worth stating twice: discovery goes to
+`aidlc-explorer`, never to the built-in `Explore`. `Explore` has no `Write` tool, so it
+cannot produce `.ai/architecture.md` at all — it returns a summary, someone transcribes it,
+and the discoverable/undiscoverable split that Phase 0 exists to make is already gone by the
+time anything reaches disk. It also has no reason to leave `verified_by:` blank, and that
+field is the whole of what `check_g0` trusts.
+
+Without the plugin, do the work in this session against `references/discovery-protocol.md`
+and the rules here. Handing it to a *generic* subagent is the case to avoid: it costs the
+refusals without saying so.
+
 ## Stance
 
 **1. Assumption over silence.** Missing information becomes a register row with confidence

@@ -37,6 +37,10 @@ and "no failures shown" is not the same evidence as "this test ran and passed".
   obvious failure path too; an AC with only a happy-path test is half covered.
 - Run the suite and report real output. A test you wrote but did not run is a claim, not
   evidence.
+- **Write few comments.** Put the AC id in the test name, not in a comment above it — the
+  name is what a failing run prints and what a reviewer greps for. A test body that needs
+  narration to be followed is usually a test that should be split; fix it by splitting,
+  not by annotating.
 - No new dependencies without saying so explicitly.
 
 ## When you finish
